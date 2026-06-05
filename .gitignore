@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dev-dist/
+.env
+*.local
+*.log
+
+be/uploads/
+backend/uploads/
