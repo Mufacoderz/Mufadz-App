@@ -20,8 +20,19 @@ export default function DoaDetail() {
     useEffect(() => {
         if (!id) return
         axios
-            .get(`https://open-api.my.id/api/doa/${id}`)
-            .then(res => setDoa(res.data))
+            .get(`https://equran.id/api/doa/${id}`)
+            .then(res => {
+                const raw = res.data?.data
+                if (raw) {
+                    setDoa({
+                        id: raw.id,
+                        judul: raw.nama,
+                        arab: raw.ar,
+                        latin: raw.tr,
+                        terjemah: raw.idn,
+                    })
+                }
+            })
             .catch(console.error)
     }, [id])
 
