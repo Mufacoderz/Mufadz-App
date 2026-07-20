@@ -10,8 +10,8 @@ import {
     UserCircle,
     HelpCircle,
     Compass,
-    Calculator,
-    Repeat,
+    HandCoins,
+    HandHeart,
 } from "lucide-react";
 
 
@@ -35,8 +35,8 @@ const Sidebar = () => {
         { name: "Baca Quran", path: "/quran", icon: <BookOpen size={20} />, auth: false },
         { name: "Daftar Do'a", path: "/doa", icon: <Heart size={20} />, auth: false },
         { name: "Kiblat", path: "/kiblat", icon: <Compass size={20} />, auth: false },
-        { name: "Zakat", path: "/zakat", icon: <Calculator size={20} />, auth: false },
-        { name: "Zikir", path: "/zikir", icon: <Repeat size={20} />, auth: false },
+        { name: "Zikir", path: "/zikir", icon: <HandHeart size={20} />, auth: false },
+        { name: "Zakat", path: "/zakat", icon: <HandCoins size={20} />, auth: false },
         { name: "Profile", path: "/profile", icon: <User size={20} />, auth: true },
         {
             name: "Forum Chat",

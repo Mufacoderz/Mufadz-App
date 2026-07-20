@@ -102,14 +102,6 @@ export default function ZakatPage() {
                                 * harga beras per kg sesuai daerah masing-masing
                             </p>
                         </div>
-                        <button
-                            className="relative overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 dark:from-sky-400 dark:via-blue-500 dark:to-indigo-600 text-white dark:text-gray-800 font-semibold px-5 py-2.5 shadow-lg shadow-blue-300/40 dark:shadow-blue-700/40 transition-all duration-300 ease-out hover:scale-105 hover:shadow-blue-400/50 focus:outline-none w-full group"
-                        >
-                            <span className="relative z-10 flex items-center justify-center gap-2">
-                                Hitung Zakat Fitrah
-                            </span>
-                            <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] animate-[shine_2.5s_infinite]" />
-                        </button>
                         <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-5 text-center space-y-1">
                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                 Total Zakat Fitrah
@@ -156,14 +148,6 @@ export default function ZakatPage() {
                                 * nisab ≈ nilai 85 gram emas per tahun (cek harga emas hari ini)
                             </p>
                         </div>
-                        <button
-                            className="relative overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 dark:from-sky-400 dark:via-blue-500 dark:to-indigo-600 text-white dark:text-gray-800 font-semibold px-5 py-2.5 shadow-lg shadow-blue-300/40 dark:shadow-blue-700/40 transition-all duration-300 ease-out hover:scale-105 hover:shadow-blue-400/50 focus:outline-none w-full group"
-                        >
-                            <span className="relative z-10 flex items-center justify-center gap-2">
-                                Hitung Zakat Penghasilan
-                            </span>
-                            <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] animate-[shine_2.5s_infinite]" />
-                        </button>
                         <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-5 text-center space-y-1">
                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                 Zakat Penghasilan Bulan Ini
@@ -226,14 +210,6 @@ export default function ZakatPage() {
                                 * cek harga emas hari ini untuk hasil akurat
                             </p>
                         </div>
-                        <button
-                            className="relative overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 dark:from-sky-400 dark:via-blue-500 dark:to-indigo-600 text-white dark:text-gray-800 font-semibold px-5 py-2.5 shadow-lg shadow-blue-300/40 dark:shadow-blue-700/40 transition-all duration-300 ease-out hover:scale-105 hover:shadow-blue-400/50 focus:outline-none w-full group"
-                        >
-                            <span className="relative z-10 flex items-center justify-center gap-2">
-                                Hitung Zakat Maal
-                            </span>
-                            <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] animate-[shine_2.5s_infinite]" />
-                        </button>
                         <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-5 text-center space-y-1">
                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                 Total Harta

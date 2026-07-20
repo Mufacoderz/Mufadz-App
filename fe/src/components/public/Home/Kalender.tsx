@@ -33,8 +33,6 @@ function gregorianToHijri(date: Date) {
     return { day: d, month: m - 1, year: y }
 }
 
-const useIslamicHolidayTooltip = process.env.NODE_ENV === "production" ? undefined : undefined
-
 const KalenderModern = () => {
     const [monthOffset, setMonthOffset] = useState(0)
     const [apiData, setApiData] = useState<Record<string, HijriDayData> | null>(null)

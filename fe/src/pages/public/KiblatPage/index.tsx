@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navigation, MapPin, Compass, X } from "lucide-react";
+import { Navigation, Compass, X } from "lucide-react";
 
 const KAABA = { lat: 21.4225, lon: 39.8262 };
 const JAKARTA = { lat: -6.2088, lon: 106.8456 };
@@ -26,6 +26,7 @@ function computeDistance(lat1: number, lon1: number, lat2: number, lon2: number)
 type Screen = "gate" | "dial";
 
 const dialSize = "min(80vw, 336px)";
+const CARDINALS: Record<number, string> = { 0: "U", 90: "T", 180: "S", 270: "B" };
 
 export default function KiblatPage() {
     const navigate = useNavigate();
@@ -36,16 +37,12 @@ export default function KiblatPage() {
     const [aligned, setAligned] = useState(false);
     const [usingRealSensor, setUsingRealSensor] = useState(false);
     const [accuracy, setAccuracy] = useState<number | null>(null);
-    const [lastLoc, setLastLoc] = useState<{ lat: number; lon: number } | null>(null);
-    const [sweeping, setSweeping] = useState(false);
-    const [previewMode, setPreviewMode] = useState(false);
+    const [sensorError, setSensorError] = useState<string | null>(null);
+
     const [showToast, setShowToast] = useState<string | null>(null);
 
-    const sweepRef = useRef<number>(0);
     const headingRef = useRef(0);
-    const sensorWatchdogRef = useRef<ReturnType<typeof setTimeout>>();
-
-    const cardinals: Record<number, string> = { 0: "U", 90: "T", 180: "S", 270: "B" };
+    const sensorWatchdogRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const ticks = useMemo(() => {
         const items: { deg: number; major: boolean }[] = [];
@@ -58,8 +55,8 @@ export default function KiblatPage() {
     const labels = useMemo(() => {
         const items: { deg: number; isCardinal: boolean; text: string }[] = [];
         for (let deg = 0; deg < 360; deg += 30) {
-            const isCardinal = cardinals[deg] !== undefined;
-            items.push({ deg, isCardinal, text: isCardinal ? cardinals[deg] : String(deg) });
+            const isCardinal = CARDINALS[deg] !== undefined;
+            items.push({ deg, isCardinal, text: isCardinal ? CARDINALS[deg] : String(deg) });
         }
         return items;
     }, []);
@@ -85,25 +82,6 @@ export default function KiblatPage() {
         cb?.();
     }, [updateCompass]);
 
-    const stopSweep = useCallback(() => {
-        setSweeping(false);
-        clearInterval(sweepRef.current);
-    }, []);
-
-    const startSweep = useCallback(() => {
-        setSweeping(true);
-        let dir = 1;
-        let h = headingRef.current;
-        sweepRef.current = window.setInterval(() => {
-            h += dir * 1.1;
-            if (h >= 359) { h = 359; dir = -1; }
-            if (h <= 0) { h = 0; dir = 1; }
-            headingRef.current = h;
-            setHeading(h);
-            updateCompass(h, bearing, distanceKm);
-        }, 30);
-    }, [bearing, distanceKm, updateCompass]);
-
     const handleOrientation = useCallback((e: DeviceOrientationEvent) => {
         let h: number | null = null;
         const we = e as DeviceOrientationEvent & { webkitCompassHeading?: number; webkitCompassAccuracy?: number };
@@ -117,45 +95,51 @@ export default function KiblatPage() {
             return;
         }
         setUsingRealSensor(true);
-        setPreviewMode(false);
         clearTimeout(sensorWatchdogRef.current);
-        stopSweep();
+        setSensorError(null);
         headingRef.current = (h + 360) % 360;
         updateCompass(headingRef.current, bearing, distanceKm);
-    }, [bearing, distanceKm, stopSweep, updateCompass]);
+    }, [bearing, distanceKm, updateCompass]);
 
     const requestOrientation = useCallback(() => {
-        const deo = DeviceOrientationEvent as unknown as (typeof DeviceOrientationEvent) & { requestPermission?: () => Promise<string> };
-        if (typeof deo.requestPermission === "function") {
-            deo.requestPermission().then((state) => {
-                if (state === "granted") {
-                    window.addEventListener("deviceorientation", handleOrientation);
-                }
-                setTimeout(() => {
-                    if (!usingRealSensor) startDemo();
-                }, 2500);
-            }).catch(() => setTimeout(startDemo, 0));
-        } else if ("DeviceOrientationEvent" in window) {
+        const deo = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+            requestPermission?: () => Promise<string>;
+        };
+
+        const startListening = () => {
             window.addEventListener("deviceorientation", handleOrientation);
-            setTimeout(() => {
-                if (!usingRealSensor) startDemo();
+
+            sensorWatchdogRef.current = window.setTimeout(() => {
+                if (!usingRealSensor) {
+                    setSensorError(
+                        "Sensor kompas tidak terdeteksi pada perangkat ini."
+                    );
+                }
             }, 2500);
+        };
+
+        if (typeof deo.requestPermission === "function") {
+            deo.requestPermission()
+                .then((state) => {
+                    if (state === "granted") {
+                        startListening();
+                    } else {
+                        setSensorError("Izin sensor arah ditolak.");
+                    }
+                })
+                .catch(() => {
+                    setSensorError("Tidak dapat mengakses sensor arah.");
+                });
+        } else if ("DeviceOrientationEvent" in window) {
+            startListening();
         } else {
-            setTimeout(startDemo, 0);
+            setSensorError("Browser atau perangkat tidak mendukung kompas.");
         }
     }, [handleOrientation, usingRealSensor]);
 
-    const startDemo = useCallback(() => {
-        const loc = lastLoc || JAKARTA;
-        computeAndShow(loc.lat, loc.lon);
-        setPreviewMode(true);
-        setAccuracy(null);
-        startSweep();
-    }, [lastLoc, computeAndShow, startSweep]);
-
+    // Cleanup
     useEffect(() => {
         return () => {
-            clearInterval(sweepRef.current);
             clearTimeout(sensorWatchdogRef.current);
             window.removeEventListener("deviceorientation", handleOrientation);
         };
@@ -174,7 +158,6 @@ export default function KiblatPage() {
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-                    setLastLoc(loc);
                     computeAndShow(loc.lat, loc.lon);
                     requestOrientation();
                 },
@@ -189,15 +172,6 @@ export default function KiblatPage() {
             requestOrientation();
         }
     };
-
-    const showPreview = () => {
-        setScreen("dial");
-        setLastLoc(JAKARTA);
-        computeAndShow(JAKARTA.lat, JAKARTA.lon);
-        startDemo();
-    };
-
-    const diff = Math.abs(((bearing - heading + 540) % 360) - 180);
 
     const accuracyLabel = accuracy == null
         ? "Kalibrasi tak terdeteksi"
@@ -244,12 +218,6 @@ export default function KiblatPage() {
                             </span>
                             <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] animate-[shine_2.5s_infinite]" />
                         </button>
-                        <button
-                            onClick={showPreview}
-                            className="rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 font-semibold px-5 py-2.5 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all duration-300 w-full"
-                        >
-                            Lihat pratinjau
-                        </button>
                     </div>
                 </div>
             )}
@@ -267,17 +235,31 @@ export default function KiblatPage() {
                     </div>
 
                     {/* Accuracy badge */}
-                    {!previewMode && (
+                    {!sensorError && (
                         <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-full border transition-colors ${accuracyClass}`}>
                             <span className="w-1.5 h-1.5 rounded-full bg-current" />
                             {accuracyLabel}
                         </span>
                     )}
-                    {previewMode && (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-full border text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20">
-                            <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                            Mode pratinjau
-                        </span>
+
+                    {sensorError && (
+                        <div className="w-full rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4 text-center">
+                            <p className="font-semibold text-red-600 dark:text-red-400">
+                                Kompas tidak tersedia
+                            </p>
+                            <p className="text-sm mt-2 text-gray-600 dark:text-gray-300">
+                                {sensorError}
+                            </p>
+                            <button
+                                onClick={() => {
+                                    setSensorError(null);
+                                    requestOrientation();
+                                }}
+                                className="mt-4 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                            >
+                                Coba Lagi
+                            </button>
+                        </div>
                     )}
 
                     {/* Dial */}
@@ -358,51 +340,15 @@ export default function KiblatPage() {
                         </p>
                     </div>
 
-                    {/* Demo controls */}
-                    {previewMode && (
-                        <div className="w-full max-w-[260px] flex flex-col items-center gap-2 p-3 border border-dashed border-blue-200 dark:border-blue-800 rounded-2xl bg-blue-50/50 dark:bg-blue-900/10">
-                            <span className="text-[10px] font-bold tracking-wider text-textLight dark:text-textDark uppercase">
-                                Mode pratinjau — geser untuk uji manual
-                            </span>
-                            <input
-                                type="range"
-                                min={0}
-                                max={359}
-                                value={Math.round(heading)}
-                                onChange={(e) => {
-                                    stopSweep();
-                                    const h = Number(e.target.value);
-                                    headingRef.current = h;
-                                    setHeading(h);
-                                    updateCompass(h, bearing, distanceKm);
-                                }}
-                                className="w-full accent-textLight dark:accent-textDark"
-                            />
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => { if (sweeping) stopSweep(); else startSweep(); }}
-                                    className="text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
-                                >
-                                    {sweeping ? "Jeda animasi" : "Lanjutkan animasi"}
-                                </button>
-                                <button
-                                    onClick={() => setShowToast("Gerakkan HP membentuk pola angka 8 beberapa kali, lalu coba lagi.")}
-                                    className="text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
-                                >
-                                    Kalibrasi ulang
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {!previewMode && (
-                        <button
-                            onClick={() => setShowToast("Gerakkan HP membentuk pola angka 8 beberapa kali, lalu coba lagi.")}
-                            className="text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
-                        >
-                            Kalibrasi ulang
-                        </button>
-                    )}
+                    {/* Kalibrasi Ulang Button */}
+                    <button
+                        onClick={() =>
+                            setShowToast("Gerakkan HP membentuk pola angka 8 beberapa kali, lalu coba lagi.")
+                        }
+                        className="text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
+                    >
+                        Kalibrasi ulang
+                    </button>
 
                     <p className="text-[10px] text-gray-400 dark:text-gray-600 text-center max-w-[260px] leading-relaxed">
                         Akurasi tergantung sensor perangkat. Jauhkan dari benda logam atau magnet untuk hasil terbaik.
