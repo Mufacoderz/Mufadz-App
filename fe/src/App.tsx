@@ -20,6 +20,9 @@ const Register = lazy(() => import("./pages/public/Register"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const ManajemenUser = lazy(() => import("./pages/admin/Users"));
 const Quran = lazy(() => import("./pages/admin/Quran"));
+const KiblatPage = lazy(() => import("./pages/public/KiblatPage"));
+const ZakatPage = lazy(() => import("./pages/public/ZakatPage"));
+const ZikirPage = lazy(() => import("./pages/public/ZikirPage"));
 
 function PageLoader() {
     return (
@@ -68,6 +71,9 @@ function AppContent() {
                         <Route path="/doa" element={<DoaList />} />
                         <Route path="/doa/:id" element={<DoaDetail />} />
                         <Route path="/panduan" element={<Panduan />} />
+                        <Route path="/kiblat" element={<KiblatPage />} />
+                        <Route path="/zakat" element={<ZakatPage />} />
+                        <Route path="/zikir" element={<ZikirPage />} />
                         <Route path="/chatbot" element={<ChatBot />} />
                         <Route path="/login" element={<Login />} />
                         <Route path="/register" element={<Register />} />
