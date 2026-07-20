@@ -5,6 +5,7 @@ import { useUser } from "./hooks/useUser";
 import Sidebar from "./components/public/Sidebar/Sidebar";
 import SidebarAdmin from "./components/admin/SidebarAdmin/Sidebar";
 import DarkModeToggle from "./components/public/DarkModeToggle";
+import KiblatFAB from "./components/public/KiblatFAB";
 
 const ChatGlobal = lazy(() => import("./pages/public/ChatPage"));
 const QuranList = lazy(() => import("./pages/public/QuranPage/QuranList"));
@@ -20,6 +21,9 @@ const Register = lazy(() => import("./pages/public/Register"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const ManajemenUser = lazy(() => import("./pages/admin/Users"));
 const Quran = lazy(() => import("./pages/admin/Quran"));
+const KiblatPage = lazy(() => import("./pages/public/KiblatPage"));
+const ZakatPage = lazy(() => import("./pages/public/ZakatPage"));
+const ZikirPage = lazy(() => import("./pages/public/ZikirPage"));
 
 function PageLoader() {
     return (
@@ -58,6 +62,7 @@ function AppContent() {
         <div className="flex min-h-screen bg-gray-50">
             {!hideSidebar && (role === "admin" ? <SidebarAdmin /> : <Sidebar />)}
             <DarkModeToggle />
+            {!hideSidebar && <KiblatFAB />}
             <main className={`flex-1 transition-all duration-300 ${hideSidebar ? "ml-0" : "ml-0 md:ml-64"}`}>
                 <Suspense fallback={<PageLoader />}>
                     <Routes>
@@ -68,6 +73,9 @@ function AppContent() {
                         <Route path="/doa" element={<DoaList />} />
                         <Route path="/doa/:id" element={<DoaDetail />} />
                         <Route path="/panduan" element={<Panduan />} />
+                        <Route path="/kiblat" element={<KiblatPage />} />
+                        <Route path="/zakat" element={<ZakatPage />} />
+                        <Route path="/zikir" element={<ZikirPage />} />
                         <Route path="/chatbot" element={<ChatBot />} />
                         <Route path="/login" element={<Login />} />
                         <Route path="/register" element={<Register />} />

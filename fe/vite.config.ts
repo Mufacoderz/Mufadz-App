@@ -58,6 +58,17 @@ export default defineConfig({
             handler: 'NetworkOnly',
           },
           {
+            urlPattern: ({ url }) => url.hostname === 'api.aladhan.com',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'aladhan-api',
+              expiration: {
+                maxEntries: 24,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
+          {
             urlPattern: ({ request }) => 
               ['image', 'style', 'script'].includes(request.destination),
             handler: 'StaleWhileRevalidate',
