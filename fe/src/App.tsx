@@ -5,7 +5,6 @@ import { useUser } from "./hooks/useUser";
 import Sidebar from "./components/public/Sidebar/Sidebar";
 import SidebarAdmin from "./components/admin/SidebarAdmin/Sidebar";
 import DarkModeToggle from "./components/public/DarkModeToggle";
-import KiblatFAB from "./components/public/KiblatFAB";
 
 const ChatGlobal = lazy(() => import("./pages/public/ChatPage"));
 const QuranList = lazy(() => import("./pages/public/QuranPage/QuranList"));
@@ -46,6 +45,8 @@ function AppContent() {
     const hideSidebarRoutes = ["/login", "/register"];
     const hideSidebar = hideSidebarRoutes.includes(location.pathname);
 
+
+
     // Tunggu context selesai fetch — cegah sidebar flash ke sidebar yang salah
     if (loading && !hideSidebar) {
         return (
@@ -62,7 +63,6 @@ function AppContent() {
         <div className="flex min-h-screen bg-gray-50">
             {!hideSidebar && (role === "admin" ? <SidebarAdmin /> : <Sidebar />)}
             <DarkModeToggle />
-            {!hideSidebar && <KiblatFAB />}
             <main className={`flex-1 transition-all duration-300 ${hideSidebar ? "ml-0" : "ml-0 md:ml-64"}`}>
                 <Suspense fallback={<PageLoader />}>
                     <Routes>

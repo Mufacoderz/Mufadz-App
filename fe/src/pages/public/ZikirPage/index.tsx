@@ -73,18 +73,7 @@ export default function ZikirPage() {
     return (
         <div className="w-full dark:bg-gray-900 min-h-screen p-4 md:p-8">
             <div className="max-w-2xl mx-auto space-y-6">
-                <div className="sticky top-0 z-10 pt-2 pb-4 bg-gray-50 dark:bg-gray-900 -mx-4 md:-mx-8 px-4 md:px-8">
-                    <button
-                        onClick={() => setModalOpen(true)}
-                        className="relative overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 dark:from-sky-400 dark:via-blue-500 dark:to-indigo-600 text-white dark:text-gray-800 font-semibold px-5 py-2.5 shadow-lg shadow-blue-300/40 dark:shadow-blue-700/40 transition-all duration-300 ease-out hover:scale-105 hover:shadow-blue-400/50 focus:outline-none w-full group"
-                    >
-                        <span className="relative z-10 flex items-center justify-center gap-2">
-                            <Repeat size={18} />
-                            Mulai Hitung
-                        </span>
-                        <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] animate-[shine_2.5s_infinite]" />
-                    </button>
-                </div>
+                
 
                 <div className="space-y-6 pb-8">
                     {bacaanList.map((bacaan, i) => (
@@ -96,6 +85,19 @@ export default function ZikirPage() {
                             terjemah={bacaan.terjemah}
                         />
                     ))}
+                </div>
+
+                <div className="sticky bottom-0 z-10 pt-2 pb-4 bg-gray-50 dark:bg-gray-900 -mx-4 md:-mx-8 px-4 md:px-8">
+                    <button
+                        onClick={() => setModalOpen(true)}
+                        className="relative overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 dark:from-sky-400 dark:via-blue-500 dark:to-indigo-600 text-white dark:text-gray-800 font-semibold px-5 py-2.5 shadow-lg shadow-blue-300/40 dark:shadow-blue-700/40 transition-all duration-300 ease-out hover:scale-105 hover:shadow-blue-400/50 focus:outline-none w-full group"
+                    >
+                        <span className="relative z-10 flex items-center justify-center gap-2">
+                            <Repeat size={18} />
+                            Mulai Hitung
+                        </span>
+                        <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] animate-[shine_2.5s_infinite]" />
+                    </button>
                 </div>
             </div>
 
