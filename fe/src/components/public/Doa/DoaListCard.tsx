@@ -1,16 +1,18 @@
 import { Link } from "react-router-dom"
-import { useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useDoa } from "../../../api/doa"
 import { Sparkles } from "lucide-react"
 import AOS from "aos"
 import "aos/dist/aos.css";
 
-
-
+// Jumlah kartu yang ditampilkan per batch. API doa cuma support filter
+// grup/tag, gak ada param page/limit — jadi ini murni pagination di sisi
+// render (bukan fetch API baru tiap scroll).
+const PAGE_SIZE = 30;
 
 const DoaListCard = () => {
 
-        useEffect(() => {
+    useEffect(() => {
         AOS.init({
             duration: 1000,
             once: false,
@@ -19,6 +21,59 @@ const DoaListCard = () => {
     }, []);
 
     const { doaList, loading, error } = useDoa()
+
+    const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+    const [loadingMore, setLoadingMore] = useState(false)
+
+    const sentinelRef = useRef<HTMLDivElement | null>(null)
+    const visibleCountRef = useRef(visibleCount)
+    const loadingMoreRef = useRef(false)
+
+    // Reset batch pertama tiap kali sumber data berganti (misal nanti nambah
+    // filter grup/tag yang bikin doaList berubah total)
+    useEffect(() => {
+        setVisibleCount(PAGE_SIZE)
+    }, [doaList])
+
+    useEffect(() => {
+        visibleCountRef.current = visibleCount
+    }, [visibleCount])
+
+    // AOS cuma nge-scan DOM sekali pas init, jadi kartu yang baru di-append
+    // harus di-refresh supaya animasinya kedeteksi juga
+    useEffect(() => {
+        AOS.refresh()
+    }, [visibleCount])
+
+    useEffect(() => {
+        if (!sentinelRef.current || doaList.length === 0) return
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const entry = entries[0]
+                if (
+                    entry.isIntersecting &&
+                    !loadingMoreRef.current &&
+                    visibleCountRef.current < doaList.length
+                ) {
+                    loadingMoreRef.current = true
+                    setLoadingMore(true)
+
+                    // Delay kecil biar loading state sempat kerender & terasa,
+                    // sebelum batch berikutnya di-append ke grid
+                    setTimeout(() => {
+                        setVisibleCount((c) => Math.min(c + PAGE_SIZE, doaList.length))
+                        setLoadingMore(false)
+                        loadingMoreRef.current = false
+                    }, 250)
+                }
+            },
+            { rootMargin: "200px" }
+        )
+
+        observer.observe(sentinelRef.current)
+        return () => observer.disconnect()
+    }, [doaList.length])
 
     if (loading)
         return (
@@ -43,34 +98,56 @@ const DoaListCard = () => {
             </p>
         )
 
+    const visibleDoa = doaList.slice(0, visibleCount)
+    const hasMore = visibleCount < doaList.length
+
     return (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 ">
-                {doaList.map((doa)=>(
+        <>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 ">
+                {visibleDoa.map((doa) => (
                     <Link key={doa.id} to={`/doa/${doa.id}`}>
                         <div
-                        key={doa.id}
-                        data-aos="fade-right"
-                        data-aos-delay={Math.random() * 200}
-                        className="group bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-blue-100 dark:border-gray-700 hover:border-blue-700 dark:hover:border-blue-100
+                            key={doa.id}
+                            data-aos="fade-right"
+                            data-aos-delay={Math.random() * 200}
+                            className="group bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-blue-100 dark:border-gray-700 hover:border-blue-700 dark:hover:border-blue-100
                         rounded-2xl p-5 shadow-sm hover:shadow-md transition-all duration-300 cursor-pointer
                         hover:-translate-y-1 flex flex-col items-start h-18 sm:h-24"
-                    >
-                        <div 
-                        
-                        className="flex items-center justify-between w-full ">
-                            <div className="flex items-start gap-3">
-                                <div className="bg-textLight dark:bg-textDark text-white dark:text-gray-800 w-10 h-10 flex items-center justify-center rounded-full font-semibold shadow-sm">
-                                    {doa.id}
+                        >
+                            <div
+
+                                className="flex items-center justify-between w-full ">
+                                <div className="flex items-start gap-3">
+                                    <div className="bg-textLight dark:bg-textDark text-white dark:text-gray-800 w-10 h-10 flex items-center justify-center rounded-full font-semibold shadow-sm">
+                                        {doa.id}
+                                    </div>
+                                    <h3 className="text-base font-semibold text-gray-800 dark:text-white group-hover:text-blue-700 dark:group-hover:text-txtbg-textDark transition-colors flex-1">
+                                        {doa.judul}
+                                    </h3>
                                 </div>
-                                <h3 className="text-base font-semibold text-gray-800 dark:text-white group-hover:text-blue-700 dark:group-hover:text-txtbg-textDark transition-colors flex-1">
-                                    {doa.judul}
-                                </h3>
                             </div>
                         </div>
-                    </div>
                     </Link>
                 ))}
             </div>
+
+            {hasMore && (
+                <div ref={sentinelRef} className="flex justify-center items-center py-8">
+                    {loadingMore && (
+                        <p className="text-textLight dark:text-textDark text-sm flex items-center gap-2 animate-pulse">
+                            <Sparkles size={16} className="animate-spin-slow" />
+                            Memuat do'a lainnya...
+                        </p>
+                    )}
+                </div>
+            )}
+
+            {!hasMore && doaList.length > PAGE_SIZE && (
+                <p className="text-center text-xs text-gray-400 dark:text-gray-600 py-8">
+                    Semua {doaList.length} do'a sudah ditampilkan.
+                </p>
+            )}
+        </>
     )
 }
 

@@ -1,9 +1,28 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navigation, Compass, X, Smartphone, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Navigation, Compass, X, Smartphone, CheckCircle2, AlertTriangle, MapPin, LocateFixed } from "lucide-react";
+import { MapContainer, TileLayer, Marker } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 const KAABA = { lat: 21.4225, lon: 39.8262 };
 const JAKARTA = { lat: -6.2088, lon: 106.8456 };
+
+// Pin kustom biar konsisten sama tema biru aplikasi, bukan icon default Leaflet
+// (default-nya suka broken di bundler kayak Vite karena path asset gak kebawa).
+const pinIcon = L.divIcon({
+    className: "",
+    html: `<div style="width:36px;height:36px;transform:translate(-50%,-100%);">
+        <div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+            background:linear-gradient(180deg,#3b82f6,#1d4ed8);
+            box-shadow:0 4px 14px -2px rgba(59,130,246,0.5), 0 0 0 3px white;
+            display:flex;align-items:center;justify-content:center;">
+            <div style="transform:rotate(45deg);width:12px;height:12px;border-radius:50%;background:white;"></div>
+        </div>
+    </div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 36],
+});
 
 function toRad(d: number) { return d * Math.PI / 180; }
 function toDeg(r: number) { return r * 180 / Math.PI; }
@@ -23,7 +42,8 @@ function computeDistance(lat1: number, lon1: number, lat2: number, lon2: number)
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-type Screen = "gate" | "dial";
+type Screen = "gate" | "dial" | "manual";
+type Coords = { lat: number; lon: number };
 type ResetStep = "idle" | "instruction" | "progress" | "success" | "fail";
 
 const dialSize = "min(80vw, 336px)";
@@ -51,8 +71,14 @@ export default function KiblatPage() {
     const [resetProgressPct, setResetProgressPct] = useState(0);
     const [resetRotationDeg, setResetRotationDeg] = useState(0);
 
+    // Alur "Atur Lokasi Manual"
+    const [manualMarker, setManualMarker] = useState<Coords | null>(null);
+    const [manualMapKey, setManualMapKey] = useState(0);
+    const lastKnownCoordsRef = useRef<Coords | null>(null);
+
     const headingRef = useRef(0);
     const sensorWatchdogRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const sensorRequestedRef = useRef(false);
 
     const resetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const resetIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -118,6 +144,9 @@ export default function KiblatPage() {
     }, [bearing, distanceKm, updateCompass]);
 
     const requestOrientation = useCallback(() => {
+        if (sensorRequestedRef.current) return;
+        sensorRequestedRef.current = true;
+
         const deo = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
             requestPermission?: () => Promise<string>;
         };
@@ -193,24 +222,65 @@ export default function KiblatPage() {
     }, [resetStep]);
 
     const activateCompass = () => {
-        setScreen("dial");
+        // Diminta di sini, sinkron di dalam handler klik, biar iOS Safari
+        // menganggap ini masih bagian dari gesture user (syarat requestPermission()).
+        requestOrientation();
+
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                    lastKnownCoordsRef.current = loc;
                     computeAndShow(loc.lat, loc.lon);
-                    requestOrientation();
+                    setScreen("dial");
                 },
                 () => {
-                    computeAndShow(JAKARTA.lat, JAKARTA.lon);
-                    requestOrientation();
+                    // Lokasi gagal didapat -> jangan diam-diam nebak Jakarta,
+                    // biarkan user nentuin sendiri titiknya di peta.
+                    openManualLocation();
                 },
-                { timeout: 6000 }
+                { timeout: 6000, enableHighAccuracy: true }
             );
         } else {
-            computeAndShow(JAKARTA.lat, JAKARTA.lon);
-            requestOrientation();
+            openManualLocation();
         }
+    };
+
+    // Buka peta buat nentuin lokasi manual. Titik awal pin dari lokasi
+    // terakhir yang diketahui (kalau ada), atau Jakarta sebagai starting point.
+    const openManualLocation = () => {
+        const seed = lastKnownCoordsRef.current ?? { lat: JAKARTA.lat, lon: JAKARTA.lon };
+        setManualMarker(seed);
+        setManualMapKey((k) => k + 1);
+        setScreen("manual");
+    };
+
+    const cancelManualLocation = () => {
+        setScreen(lastKnownCoordsRef.current ? "dial" : "gate");
+    };
+
+    const confirmManualLocation = () => {
+        if (!manualMarker) return;
+        lastKnownCoordsRef.current = manualMarker;
+        computeAndShow(manualMarker.lat, manualMarker.lon);
+        setScreen("dial");
+    };
+
+    const handleMarkerDragEnd = useCallback((e: L.LeafletEvent) => {
+        const pos = (e.target as L.Marker).getLatLng();
+        setManualMarker({ lat: pos.lat, lon: pos.lng });
+    }, []);
+
+    const locateMeInManual = () => {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setManualMarker({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+                setManualMapKey((k) => k + 1);
+            },
+            () => { /* gagal, user masih bisa geser pin manual */ },
+            { timeout: 6000, enableHighAccuracy: true }
+        );
     };
 
     // Buka modal "Setel Ulang Arah". Kalau sensor memang lagi error total,
@@ -339,6 +409,7 @@ export default function KiblatPage() {
                             <button
                                 onClick={() => {
                                     setSensorError(null);
+                                    sensorRequestedRef.current = false;
                                     requestOrientation();
                                 }}
                                 className="mt-4 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
@@ -426,17 +497,92 @@ export default function KiblatPage() {
                         </p>
                     </div>
 
-                    {/* Setel Ulang Arah */}
-                    <button
-                        onClick={openResetModal}
-                        className="text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
-                    >
-                        Setel ulang arah
-                    </button>
+                    {/* Setel Ulang Arah & Atur Lokasi Manual */}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={openResetModal}
+                            className="text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
+                        >
+                            Setel ulang arah
+                        </button>
+                        <button
+                            onClick={openManualLocation}
+                            className="flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
+                        >
+                            <MapPin size={12} />
+                            Atur lokasi manual
+                        </button>
+                    </div>
 
                     <p className="text-[10px] text-gray-400 dark:text-gray-600 text-center max-w-[260px] leading-relaxed">
                         Akurasi tergantung sensor perangkat. Jauhkan dari benda logam atau magnet untuk hasil terbaik.
                     </p>
+                </div>
+            )}
+
+            {/* Atur Lokasi Manual */}
+            {screen === "manual" && manualMarker && (
+                <div className="flex flex-col items-center gap-3 w-full max-w-sm">
+                    <div className="flex items-center justify-between w-full">
+                        <span className="text-[10px] font-bold tracking-widest text-textLight dark:text-textDark uppercase">
+                            Atur Lokasi Manual
+                        </span>
+                        <button onClick={cancelManualLocation} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                            <X size={16} className="text-gray-400 dark:text-gray-500" />
+                        </button>
+                    </div>
+
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center leading-relaxed px-1">
+                        Geser pin ke titik lokasimu yang benar. Arah kiblat dihitung ulang dari titik ini.
+                    </p>
+
+                    <div className="w-full rounded-2xl overflow-hidden border border-blue-100 dark:border-gray-700 shadow-lg">
+                        <MapContainer
+                            key={manualMapKey}
+                            center={[manualMarker.lat, manualMarker.lon]}
+                            zoom={14}
+                            style={{ width: "100%", height: "300px" }}
+                            scrollWheelZoom
+                        >
+                            <TileLayer
+                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            />
+                            <Marker
+                                position={[manualMarker.lat, manualMarker.lon]}
+                                draggable
+                                icon={pinIcon}
+                                eventHandlers={{ dragend: handleMarkerDragEnd }}
+                            />
+                        </MapContainer>
+                    </div>
+
+                    <p className="text-[11px] font-mono text-gray-400 dark:text-gray-600">
+                        {manualMarker.lat.toFixed(5)}, {manualMarker.lon.toFixed(5)}
+                    </p>
+
+                    <button
+                        onClick={locateMeInManual}
+                        className="flex items-center gap-1.5 text-[11px] font-semibold text-textLight dark:text-textDark hover:underline"
+                    >
+                        <LocateFixed size={13} />
+                        Gunakan lokasi HP saat ini
+                    </button>
+
+                    <div className="flex gap-2 w-full mt-1">
+                        <button
+                            onClick={cancelManualLocation}
+                            className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                        >
+                            Batal
+                        </button>
+                        <button
+                            onClick={confirmManualLocation}
+                            className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 shadow-lg shadow-blue-300/40 hover:scale-105 transition-transform"
+                        >
+                            Gunakan Lokasi Ini
+                        </button>
+                    </div>
                 </div>
             )}
 
