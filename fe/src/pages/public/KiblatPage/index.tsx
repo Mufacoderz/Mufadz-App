@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navigation, Compass, X } from "lucide-react";
+import { Navigation, Compass, X, Smartphone, CheckCircle2, AlertTriangle } from "lucide-react";
 
 const KAABA = { lat: 21.4225, lon: 39.8262 };
 const JAKARTA = { lat: -6.2088, lon: 106.8456 };
@@ -24,9 +24,16 @@ function computeDistance(lat1: number, lon1: number, lat2: number, lon2: number)
 }
 
 type Screen = "gate" | "dial";
+type ResetStep = "idle" | "instruction" | "progress" | "success" | "fail";
 
 const dialSize = "min(80vw, 336px)";
 const CARDINALS: Record<number, string> = { 0: "U", 90: "T", 180: "S", 270: "B" };
+
+// Berapa lama proses "setel ulang" berjalan sebelum dievaluasi hasilnya
+const RESET_DURATION_MS = 5000;
+// Total akumulasi perubahan sudut (derajat) selama proses berlangsung,
+// dipakai sebagai bukti bahwa HP benar-benar digerakkan (bukan cuma didiemin)
+const RESET_MOVE_THRESHOLD = 220;
 
 export default function KiblatPage() {
     const navigate = useNavigate();
@@ -39,10 +46,19 @@ export default function KiblatPage() {
     const [accuracy, setAccuracy] = useState<number | null>(null);
     const [sensorError, setSensorError] = useState<string | null>(null);
 
-    const [showToast, setShowToast] = useState<string | null>(null);
+    // Alur "Setel Ulang Arah"
+    const [resetStep, setResetStep] = useState<ResetStep>("idle");
+    const [resetProgressPct, setResetProgressPct] = useState(0);
+    const [resetRotationDeg, setResetRotationDeg] = useState(0);
 
     const headingRef = useRef(0);
     const sensorWatchdogRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    const resetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const resetIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+    const resetCumulativeRef = useRef(0);
+    const resetAccuracyStartRef = useRef<number | null>(null);
+    const prevHeadingForResetRef = useRef<number | null>(null);
 
     const ticks = useMemo(() => {
         const items: { deg: number; major: boolean }[] = [];
@@ -137,7 +153,7 @@ export default function KiblatPage() {
         }
     }, [handleOrientation, usingRealSensor]);
 
-    // Cleanup
+    // Cleanup listener sensor arah
     useEffect(() => {
         return () => {
             clearTimeout(sensorWatchdogRef.current);
@@ -145,12 +161,36 @@ export default function KiblatPage() {
         };
     }, [handleOrientation]);
 
+    // Cleanup timer/interval punya alur "Setel Ulang Arah"
     useEffect(() => {
-        if (showToast) {
-            const t = setTimeout(() => setShowToast(null), 3400);
+        return () => {
+            clearTimeout(resetTimerRef.current);
+            clearInterval(resetIntervalRef.current);
+        };
+    }, []);
+
+    // Akumulasi total perubahan sudut selama proses "progress" berjalan,
+    // ini bukti nyata bahwa HP digerakkan, dipakai buat nentuin sukses/gagal
+    useEffect(() => {
+        if (resetStep !== "progress") {
+            prevHeadingForResetRef.current = null;
+            return;
+        }
+        if (prevHeadingForResetRef.current !== null) {
+            let delta = Math.abs(heading - prevHeadingForResetRef.current);
+            if (delta > 180) delta = 360 - delta;
+            resetCumulativeRef.current += delta;
+        }
+        prevHeadingForResetRef.current = heading;
+    }, [heading, resetStep]);
+
+    // Auto-close modal saat berhasil
+    useEffect(() => {
+        if (resetStep === "success") {
+            const t = setTimeout(() => setResetStep("idle"), 1800);
             return () => clearTimeout(t);
         }
-    }, [showToast]);
+    }, [resetStep]);
 
     const activateCompass = () => {
         setScreen("dial");
@@ -173,13 +213,65 @@ export default function KiblatPage() {
         }
     };
 
+    // Buka modal "Setel Ulang Arah". Kalau sensor memang lagi error total,
+    // langsung tampilkan status gagal dengan alasan yang sama persis dengan
+    // kartu error di atas — biar gak ada dua sumber pesan yang beda.
+    const openResetModal = () => {
+        if (sensorError) {
+            setResetStep("fail");
+            return;
+        }
+        setResetStep("instruction");
+    };
+
+    const closeResetModal = () => {
+        clearTimeout(resetTimerRef.current);
+        clearInterval(resetIntervalRef.current);
+        setResetStep("idle");
+    };
+
+    const beginReset = useCallback(() => {
+        resetCumulativeRef.current = 0;
+        prevHeadingForResetRef.current = null;
+        resetAccuracyStartRef.current = accuracy;
+        setResetRotationDeg(0);
+        setResetProgressPct(0);
+        setResetStep("progress");
+
+        const startedAt = Date.now();
+        clearInterval(resetIntervalRef.current);
+        resetIntervalRef.current = setInterval(() => {
+            const pct = Math.min(100, ((Date.now() - startedAt) / RESET_DURATION_MS) * 100);
+            setResetProgressPct(pct);
+            setResetRotationDeg(Math.round(resetCumulativeRef.current));
+        }, 100);
+
+        clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = setTimeout(() => {
+            clearInterval(resetIntervalRef.current);
+            const startAcc = resetAccuracyStartRef.current;
+            const improvedAccuracy =
+                accuracy !== null && accuracy <= 25 && (startAcc === null || accuracy < startAcc);
+            const movedEnough = resetCumulativeRef.current >= RESET_MOVE_THRESHOLD;
+
+            if (sensorError) {
+                setResetStep("fail");
+            } else if (improvedAccuracy || movedEnough) {
+                if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
+                setResetStep("success");
+            } else {
+                setResetStep("fail");
+            }
+        }, RESET_DURATION_MS);
+    }, [accuracy, sensorError]);
+
     const accuracyLabel = accuracy == null
-        ? "Kalibrasi tak terdeteksi"
+        ? "Akurasi belum terdeteksi"
         : accuracy <= 10
             ? "Akurat"
             : accuracy <= 25
                 ? "Cukup akurat"
-                : "Kurang akurat, kalibrasi ulang";
+                : "Kurang akurat, coba setel ulang";
 
     const accuracyClass = accuracy == null
         ? "text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20"
@@ -189,12 +281,6 @@ export default function KiblatPage() {
 
     return (
         <div className="w-full dark:bg-gray-900 min-h-dvh flex flex-col items-center justify-center p-4 relative overflow-hidden">
-            {showToast && (
-                <div className="fixed left-1/2 bottom-6 z-50 -translate-x-1/2 bg-white dark:bg-gray-800 border border-blue-100 dark:border-gray-700 text-textLight dark:text-textDark text-xs px-4 py-2.5 rounded-xl shadow-lg text-center max-w-[280px] transition-all duration-300">
-                    {showToast}
-                </div>
-            )}
-
             {/* Gate */}
             {screen === "gate" && (
                 <div className="flex flex-col items-center text-center gap-4 max-w-xs">
@@ -340,19 +426,127 @@ export default function KiblatPage() {
                         </p>
                     </div>
 
-                    {/* Kalibrasi Ulang Button */}
+                    {/* Setel Ulang Arah */}
                     <button
-                        onClick={() =>
-                            setShowToast("Gerakkan HP membentuk pola angka 8 beberapa kali, lalu coba lagi.")
-                        }
+                        onClick={openResetModal}
                         className="text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-textLight dark:hover:border-textDark hover:text-textLight dark:hover:text-textDark transition-all"
                     >
-                        Kalibrasi ulang
+                        Setel ulang arah
                     </button>
 
                     <p className="text-[10px] text-gray-400 dark:text-gray-600 text-center max-w-[260px] leading-relaxed">
                         Akurasi tergantung sensor perangkat. Jauhkan dari benda logam atau magnet untuk hasil terbaik.
                     </p>
+                </div>
+            )}
+
+            {/* Modal Setel Ulang Arah */}
+            {resetStep !== "idle" && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="animate-modal-pop relative w-full max-w-xs rounded-3xl bg-white dark:bg-gray-900 border border-blue-100 dark:border-gray-700 shadow-2xl p-6 flex flex-col items-center text-center gap-4">
+
+                        {resetStep !== "progress" && (
+                            <button
+                                onClick={closeResetModal}
+                                className="absolute top-3 right-3 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            >
+                                <X size={16} className="text-gray-400 dark:text-gray-500" />
+                            </button>
+                        )}
+
+                        {resetStep === "instruction" && (
+                            <>
+                                <div className="w-20 h-20 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+                                    <Smartphone className="w-9 h-9 text-textLight dark:text-textDark animate-figure8" />
+                                </div>
+                                <h2 className="text-base font-bold text-textLight dark:text-textDark">
+                                    Setel Ulang Arah
+                                </h2>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                                    Pegang HP mendatar, lalu gerakkan membentuk pola angka 8 beberapa kali supaya arah kiblat makin akurat.
+                                </p>
+                                <div className="flex gap-2 w-full mt-1">
+                                    <button
+                                        onClick={closeResetModal}
+                                        className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        onClick={beginReset}
+                                        className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 shadow-lg shadow-blue-300/40 hover:scale-105 transition-transform"
+                                    >
+                                        Mulai
+                                    </button>
+                                </div>
+                            </>
+                        )}
+
+                        {resetStep === "progress" && (
+                            <>
+                                <div className="w-20 h-20 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+                                    <Smartphone className="w-9 h-9 text-textLight dark:text-textDark animate-figure8" />
+                                </div>
+                                <h2 className="text-base font-bold text-textLight dark:text-textDark">
+                                    Terus gerakkan HP...
+                                </h2>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                                    Jangan berhenti dulu, arah kiblat lagi disetel ulang.
+                                </p>
+                                <div className="w-full h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 transition-[width] duration-100 ease-linear"
+                                        style={{ width: `${resetProgressPct}%` }}
+                                    />
+                                </div>
+                                <p className="text-[11px] font-mono text-gray-400 dark:text-gray-600">
+                                    Rotasi terdeteksi: {resetRotationDeg}°
+                                </p>
+                            </>
+                        )}
+
+                        {resetStep === "success" && (
+                            <>
+                                <div className="w-20 h-20 rounded-full bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center animate-check-pop">
+                                    <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                                </div>
+                                <h2 className="text-base font-bold text-emerald-600 dark:text-emerald-400">
+                                    Berhasil disetel ulang
+                                </h2>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                                    Arah kiblat sekarang sudah lebih akurat.
+                                </p>
+                            </>
+                        )}
+
+                        {resetStep === "fail" && (
+                            <>
+                                <div className="w-20 h-20 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+                                    <AlertTriangle className="w-9 h-9 text-amber-500" />
+                                </div>
+                                <h2 className="text-base font-bold text-amber-600 dark:text-amber-400">
+                                    Belum berhasil
+                                </h2>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                                    {sensorError ?? "Gerakan belum cukup terdeteksi. Coba gerakkan HP lebih tegas membentuk pola angka 8, jauh dari benda logam atau magnet."}
+                                </p>
+                                <div className="flex gap-2 w-full mt-1">
+                                    <button
+                                        onClick={closeResetModal}
+                                        className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                    >
+                                        Tutup
+                                    </button>
+                                    <button
+                                        onClick={() => setResetStep("instruction")}
+                                        className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 via-blue-500 to-sky-400 shadow-lg shadow-blue-300/40 hover:scale-105 transition-transform"
+                                    >
+                                        Coba Lagi
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </div>
             )}
         </div>

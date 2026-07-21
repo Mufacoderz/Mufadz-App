@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { useUser } from '../../hooks/useUser'
-import ProfileAvatar from "../../components/public/Profile/ProfileAvatar";
-import ProfileInfo from "../../components/public/Profile/ProfileInfo";
-import ProfileReminders from "../../components/public/Profile/ProfileReminders";
+import { useUser } from '../../../hooks/useUser'
+import ProfileAvatar from "../../../components/public/Profile/ProfileAvatar";
+import ProfileInfo from "../../../components/public/Profile/ProfileInfo";
+import ProfileReminders from "../../../components/public/Profile/ProfileReminders";
 
 function Profile() {
     const { user, loading, refreshUser } = useUser();

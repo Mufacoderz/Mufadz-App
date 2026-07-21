@@ -57,6 +57,38 @@
 }
 
 
+@keyframes figure8 {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(9px, -6px) rotate(14deg); }
+  50% { transform: translate(0, 0) rotate(0deg); }
+  75% { transform: translate(-9px, 6px) rotate(-14deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.animate-figure8 {
+  animation: figure8 1.7s ease-in-out infinite;
+}
+
+@keyframes modal-pop {
+  0% { opacity: 0; transform: scale(0.94) translateY(6px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-modal-pop {
+  animation: modal-pop 0.22s ease-out;
+}
+
+@keyframes check-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-check-pop {
+  animation: check-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+
 h1, h2, h3, h4 {
   font-family: 'Changa';
 }

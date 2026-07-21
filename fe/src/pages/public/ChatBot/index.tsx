@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import ChatMessage from '../../components/public/Chatbot/ChatMessage';
-import ChatInput from '../../components/public/Chatbot/ChatInput';
+import ChatMessage from '../../../components/public/Chatbot/ChatMessage';
+import ChatInput from '../../../components/public/Chatbot/ChatInput';
 import {
     sendMessage as apiSendMessage,
     getChatHistory,
     getConversations,
     deleteConversation,
-} from '../../services/chatService';
-import type { Message, Conversation } from '../../services/chatService';
+} from '../../../services/chatService';
+import type { Message, Conversation } from '../../../services/chatService';
 
 const RATE_LIMIT_MSG =
     'Chatbot sedang istirahat sejenak karena batas harian telah tercapai 🌙\nSilakan coba lagi besok ya!';
