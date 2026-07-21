@@ -1,8 +1,8 @@
 
-import Footer from "../../components/public/Footer"
-import PanduanHeading from "../../components/public/Panduan/PanduanHeading"
-import PanduanList from "../../components/public/Panduan/PanduanList"
-import PanduanSupport from "../../components/public/Panduan/PanduanSupport"
+import Footer from "../../../components/public/Footer"
+import PanduanHeading from "../../../components/public/Panduan/PanduanHeading"
+import PanduanList from "../../../components/public/Panduan/PanduanList"
+import PanduanSupport from "../../../components/public/Panduan/PanduanSupport"
 
 export default function Panduan() {
 
