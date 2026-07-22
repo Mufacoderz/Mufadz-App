@@ -63,6 +63,449 @@ const RESET_MOVE_THRESHOLD = 220;
 // bearing tiap ada getaran receh dari sensor.
 const MIN_LOCATION_DELTA_KM = 0.02;
 
+// Opsi lokasi "cepat": prioritas kecepatan & keberhasilan, bukan presisi.
+// Dipakai buat nebak titik awal peta manual & fallback kalau GPS presisi
+// gagal — soalnya Ka'bah jauh banget, geseran lokasi beberapa km nyaris
+// gak ngubah hasil bearing sama sekali.
+const GEO_OPTIONS_FAST: PositionOptions = { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 };
+// Opsi presisi tinggi buat aktivasi GPS utama. Timeout dilonggarin (dari
+// 6s ke 15s) karena GPS chip butuh waktu buat nangkep sinyal, apalagi di
+// dalam ruangan — ini yang bikin tombol GPS sering keliatan "gagal terus"
+// padahal cuma butuh waktu lebih.
+const GEO_OPTIONS_PRECISE: PositionOptions = { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 };
+
+export default function KiblatPage() {
+    const navigate = useNavigate();
+    const [hasLocated, setHasLocated] = useState(false);
+    const [heading, setHeading] = useState(0);
+    const [bearing, setBearing] = useState(0);
+    const [distanceKm, setDistanceKm] = useState(0);
+    const [aligned, setAligned] = useState(false);
+    const [usingRealSensor, setUsingRealSensor] = useState(false);
+    const [accuracy, setAccuracy] = useState<number | null>(null);
+    const [sensorError, setSensorError] = useState<string | null>(null);
+
+    // Alur modal "Aktifkan Kompas" / "Setel Ulang Arah" — dua konteks beda,
+    // satu komponen modal yang sama (cuma copy teksnya nyesuain)
+    const [resetStep, setResetStep] = useState<ResetStep>("idle");
+    const [resetProgressPct, setResetProgressPct] = useState(0);
+    const [resetRotationDeg, setResetRotationDeg] = useState(0);
+    const modalPurposeRef = useRef<ModalPurpose>("activate");
+
+    // Alur "Atur Lokasi Manual" (modal peta)
+    const [manualModalOpen, setManualModalOpen] = useState(false);
+    const [manualMarker, setManualMarker] = useState<Coords | null>(null);
+    const [manualMapKey, setManualMapKey] = useState(0);
+    const [isPinLifted, setIsPinLifted] = useState(false);
+    const [locatingMe, setLocatingMe] = useState(false);
+    const lastKnownCoordsRef = useRef<Coords | null>(null);
+    const mapRef = useRef<LeafletMap | null>(null);
+    const geoWatchIdRef = useRef<number | null>(null);
+
+    const headingRef = useRef(0);
+    const sensorWatchdogRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const sensorRequestedRef = useRef(false);
+
+    const resetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const resetIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+    const resetCumulativeRef = useRef(0);
+    const resetAccuracyStartRef = useRef<number | null>(null);
+    const prevHeadingForResetRef = useRef<number | null>(null);
+
+    const ticks = useMemo(() => {
+        const items: { deg: number; major: boolean }[] = [];
+        for (let deg = 0; deg < 360; deg += 5) {
+            items.push({ deg, major: deg % 30 === 0 });
+        }
+        return items;
+    }, []);
+
+    const labels = useMemo(() => {
+        const items: { deg: number; isCardinal: boolean; text: string }[] = [];
+        for (let deg = 0; deg < 360; deg += 30) {
+            const isCardinal = CARDINALS[deg] !== undefined;
+            items.push({ deg, isCardinal, text: isCardinal ? CARDINALS[deg] : String(deg) });
+        }
+        return items;
+    }, []);
+
+    const updateCompass = useCallback((h: number, b: number, d: number) => {
+        const diff = Math.abs(((b - h + 540) % 360) - 180);
+        const isAligned = diff <= 6;
+        setHeading(h);
+        setBearing(b);
+        setDistanceKm(d);
+        setAligned(isAligned);
+        if (isAligned) {
+            if (navigator.vibrate) navigator.vibrate(40);
+        }
+    }, []);
+
+    const computeAndShow = useCallback((lat: number, lon: number) => {
+        const b = computeBearing(lat, lon, KAABA.lat, KAABA.lon);
+        const d = computeDistance(lat, lon, KAABA.lat, KAABA.lon);
+        setBearing(b);
+        setDistanceKm(d);
+        updateCompass(headingRef.current, b, d);
+    }, [updateCompass]);
+
+    const handleOrientation = useCallback((e: DeviceOrientationEvent) => {
+        let h: number | null = null;
+        const we = e as DeviceOrientationEvent & { webkitCompassHeading?: number; webkitCompassAccuracy?: number };
+        if (typeof we.webkitCompassHeading === "number") {
+            h = we.webkitCompassHeading;
+            setAccuracy(we.webkitCompassAccuracy ?? null);
+        } else if (e.alpha !== null) {
+            h = (360 - e.alpha) % 360;
+            setAccuracy(null);
+        } else {
+            return;
+        }
+        setUsingRealSensor(true);
+        clearTimeout(sensorWatchdogRef.current);
+        setSensorError(null);
+        headingRef.current = (h + 360) % 360;
+        updateCompass(headingRef.current, bearing, distanceKm);
+    }, [bearing, distanceKm, updateCompass]);
+
+    const requestOrientation = useCallback(() => {
+        if (sensorRequestedRef.current) return;
+        sensorRequestedRef.current = true;
+
+        const deo = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+            requestPermission?: () => Promise<string>;
+        };
+
+        const startListening = () => {
+            window.addEventListener("deviceorientation", handleOrientation);
+
+            sensorWatchdogRef.current = window.setTimeout(() => {
+                if (!usingRealSensor) {
+                    setSensorError(
+                        "Sensor kompas tidak terdeteksi pada perangkat ini."
+                    );
+                }
+            }, 2500);
+        };
+
+        if (typeof deo.requestPermission === "function") {
+            deo.requestPermission()
+                .then((state) => {
+                    if (state === "granted") {
+                        startListening();
+                    } else {
+                        setSensorError("Izin sensor arah ditolak.");
+                    }
+                })
+                .catch(() => {
+                    setSensorError("Tidak dapat mengakses sensor arah.");
+                });
+        } else if ("DeviceOrientationEvent" in window) {
+            startListening();
+        } else {
+            setSensorError("Browser atau perangkat tidak mendukung kompas.");
+        }
+    }, [handleOrientation, usingRealSensor]);
+
+    // Cleanup listener sensor arah
+    useEffect(() => {
+        return () => {
+            clearTimeout(sensorWatchdogRef.current);
+            window.removeEventListener("deviceorientation", handleOrientation);
+        };
+    }, [handleOrientation]);
+
+    // Cleanup timer/interval punya alur modal kompas
+    useEffect(() => {
+        return () => {
+            clearTimeout(resetTimerRef.current);
+            clearInterval(resetIntervalRef.current);
+        };
+    }, []);
+
+    // Akumulasi total perubahan sudut selama proses "progress" berjalan,
+    // ini bukti nyata bahwa HP digerakkan, dipakai buat nentuin sukses/gagal
+    useEffect(() => {
+        if (resetStep !== "progress") {
+            prevHeadingForResetRef.current = null;
+            return;
+        }
+        if (prevHeadingForResetRef.current !== null) {
+            let delta = Math.abs(heading - prevHeadingForResetRef.current);
+            if (delta > 180) delta = 360 - delta;
+            resetCumulativeRef.current += delta;
+        }
+        prevHeadingForResetRef.current = heading;
+    }, [heading, resetStep]);
+
+    // Auto-close modal saat berhasil
+    useEffect(() => {
+        if (resetStep === "success") {
+            const t = setTimeout(() => setResetStep("idle"), 1800);
+            return () => clearTimeout(t);
+        }
+    }, [resetStep]);
+
+    // Update posisi dari watchPosition — cuma dipakai kalau pergeserannya
+    // cukup berarti (bukan noise GPS), biar dial gak "gemeteran" sendiri.
+    const handleGeoUpdate = useCallback((pos: GeolocationPosition) => {
+        const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        const prev = lastKnownCoordsRef.current;
+        if (prev) {
+            const movedKm = computeDistance(prev.lat, prev.lon, loc.lat, loc.lon);
+            if (movedKm < MIN_LOCATION_DELTA_KM) return;
+        }
+        lastKnownCoordsRef.current = loc;
+        computeAndShow(loc.lat, loc.lon);
+    }, [computeAndShow]);
+
+    const stopWatchingLocation = useCallback(() => {
+        if (geoWatchIdRef.current !== null) {
+            navigator.geolocation.clearWatch(geoWatchIdRef.current);
+            geoWatchIdRef.current = null;
+        }
+    }, []);
+
+    const startWatchingLocation = useCallback(() => {
+        if (!navigator.geolocation || geoWatchIdRef.current !== null) return;
+        geoWatchIdRef.current = navigator.geolocation.watchPosition(
+            handleGeoUpdate,
+            () => { /* sinyal GPS sempat putus, diamkan & pakai posisi terakhir */ },
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+        );
+    }, [handleGeoUpdate]);
+
+    // Watch GPS berhenti otomatis kalau halaman ditinggalkan, biar gak
+    // nguras baterai di background.
+    useEffect(() => {
+        return () => stopWatchingLocation();
+    }, [stopWatchingLocation]);
+
+    // CTA "Aktifkan Otomatis (GPS)". Lokasi & tampilan kiblat langsung
+    // ditentukan begitu GPS berhasil — modal figure-8 di bawah ini sifatnya
+    // cuma pelengkap buat naikkin akurasi sensor arah, bukan syarat.
+    const handleAutoActivate = () => {
+        // Diminta di sini, sinkron di dalam handler klik, biar iOS Safari
+        // menganggap ini masih bagian dari gesture user (syarat requestPermission()).
+        requestOrientation();
+
+        if (!navigator.geolocation) {
+            openManualLocation();
+            return;
+        }
+
+        const onLocated = (pos: GeolocationPosition) => {
+            const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            lastKnownCoordsRef.current = loc;
+            computeAndShow(loc.lat, loc.lon);
+            setHasLocated(true);
+            modalPurposeRef.current = "activate";
+            setResetStep("instruction");
+            startWatchingLocation();
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            onLocated,
+            () => {
+                // Percobaan presisi tinggi gagal/timeout — paling sering gara-gara
+                // GPS chip belum sempat nangkep sinyal (di dalam ruangan/gedung).
+                // Coba sekali lagi pakai mode cepat (wifi/cell, bukan GPS chip)
+                // sebelum benar-benar nyerah ke lokasi manual.
+                navigator.geolocation.getCurrentPosition(
+                    onLocated,
+                    () => {
+                        // Dua-duanya tetap gagal (kemungkinan besar izin lokasi
+                        // ditolak) -> jangan diam-diam nebak Jakarta, biarkan user
+                        // nentuin sendiri titiknya di peta.
+                        openManualLocation();
+                    },
+                    GEO_OPTIONS_FAST
+                );
+            },
+            GEO_OPTIONS_PRECISE
+        );
+    };
+
+    // Buka modal peta lokasi manual. Titik awal pin dari lokasi terakhir
+    // yang diketahui (kalau ada). Kalau belum ada sama sekali, modal tetap
+    // dibuka instan pakai Jakarta cuma sebagai placeholder sementara — TAPI
+    // langsung nembak lokasi asli user di background, dan begitu dapat,
+    // peta "flyTo" pindah ke situ. Jadi user tinggal geser dikit buat
+    // presisi, bukan geser jauh dari Jakarta ke lokasi aslinya.
+    const openManualLocation = () => {
+        const seed = lastKnownCoordsRef.current ?? { lat: JAKARTA.lat, lon: JAKARTA.lon };
+        setManualMarker(seed);
+        setManualMapKey((k) => k + 1);
+        setManualModalOpen(true);
+
+        if (!lastKnownCoordsRef.current && navigator.geolocation) {
+            setLocatingMe(true);
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                    lastKnownCoordsRef.current = c;
+                    setLocatingMe(false);
+                    if (mapRef.current) {
+                        // flyTo bakal trigger moveend sendiri, yang otomatis
+                        // nge-sync manualMarker ke titik baru ini
+                        mapRef.current.flyTo([c.lat, c.lon], 15);
+                    } else {
+                        setManualMarker(c);
+                    }
+                },
+                () => setLocatingMe(false),
+                GEO_OPTIONS_FAST
+            );
+        }
+    };
+
+    const cancelManualLocation = () => {
+        setManualModalOpen(false);
+    };
+
+    const confirmManualLocation = () => {
+        if (!manualMarker) return;
+        stopWatchingLocation();
+        lastKnownCoordsRef.current = manualMarker;
+        computeAndShow(manualMarker.lat, manualMarker.lon);
+        setHasLocated(true);
+        setManualModalOpen(false);
+    };
+
+    const handleMapMoveEnd = useCallback((c: Coords) => {
+        setManualMarker(c);
+        setIsPinLifted(false);
+    }, []);
+
+    const handleMapDragStart = useCallback(() => {
+        setIsPinLifted(true);
+    }, []);
+
+    const locateMeInManual = () => {
+        if (!navigator.geolocation) return;
+        setLocatingMe(true);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                setLocatingMe(false);
+                if (mapRef.current) {
+                    // flyTo bakal trigger moveend sendiri, yang otomatis
+                    // nge-sync manualMarker ke titik baru ini
+                    mapRef.current.flyTo([c.lat, c.lon], 15);
+                } else {
+                    setManualMarker(c);
+                }
+            },
+            () => setLocatingMe(false),
+            GEO_OPTIONS_FAST
+        );
+    };
+
+    // Buka modal "Setel Ulang Arah" (recalibrasi, dipakai setelah aktif).
+    // Kalau sensor memang lagi error total, langsung tampilkan status gagal
+    // dengan alasan yang sama persis dengan kartu error di atas.
+    const openResetModal = () => {
+        modalPurposeRef.current = "recalibrate";
+        if (sensorError) {
+            setResetStep("fail");
+            return;
+        }
+        setResetStep("instruction");
+    };
+
+    const closeResetModal = () => {
+        clearTimeout(resetTimerRef.current);
+        clearInterval(resetIntervalRef.current);
+        setResetStep("idle");
+    };
+
+    const beginReset = useCallback(() => {
+        resetCumulativeRef.current = 0;
+        prevHeadingForResetRef.current = null;
+        resetAccuracyStartRef.current = accuracy;
+        setResetRotationDeg(0);
+        setResetProgressPct(0);
+        setResetStep("progress");
+
+        const startedAt = Date.now();
+        clearInterval(resetIntervalRef.current);
+        resetIntervalRef.current = setInterval(() => {
+            const pct = Math.min(100, ((Date.now() - startedAt) / RESET_DURATION_MS) * 100);
+            setResetProgressPct(pct);
+            setResetRotationDeg(Math.round(resetCumulativeRef.current));
+        }, 100);
+
+        clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = setTimeout(() => {
+            clearInterval(resetIntervalRef.current);
+            const startAcc = resetAccuracyStartRef.current;
+            const improvedAccuracy =
+                accuracy !== null && accuracy <= 25 && (startAcc === null || accuracy < startAcc);
+            const movedEnough = resetCumulativeRef.current >= RESET_MOVE_THRESHOLD;
+
+            if (sensorError) {
+                setResetStep("fail");
+            } else if (improvedAccuracy || movedEnough) {
+                if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
+                setResetStep("success");
+            } else {
+                setResetStep("fail");
+            }
+        }, RESET_DURATION_MS);
+    }, [accuracy, sensorError]);
+
+    const accuracyLabel = accuracy == null
+        ? "Akurasi belum terdeteksi"
+        : accuracy <= 10
+            ? "Akurat"
+            : accuracy <= 25
+                ? "Cukup akurat"
+                : "Kurang akurat, coba setel ulang";
+
+    const accuracyClass = accuracy == null
+        ? "text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20"
+        : accuracy <= 10
+            ? "text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20"
+            : "text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20";
+
+    const isActivateModal = modalPurposeRef.current === "activate";
+
+    return (
+        <div className="w-full dark:bg-gray-900 min-h-dvh flex flex-col items-center justify-center p-4 relative overflow-hidden">
+            <div className="flex flex-col items-center gap-5 w-full max-w-xs">
+                <div className="flex items-center justify-between w-full">
+                    <span className="text-[10px] font-bold tracking-widest text-textLight dark:text-textDark uppercase">
+                        Mufadz · Kompas Kiblat
+                    </span>
+                    <button onClick={() => navigate("/")} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray    onDragStart: () => void;
+}) {
+    useMapEvents({
+        movestart: () => onDragStart(),
+        moveend: (e) => {
+            const c = e.target.getCenter();
+            onMoveEnd({ lat: c.lat, lon: c.lng });
+        },
+    });
+    return null;
+}
+
+type Coords = { lat: number; lon: number };
+type ResetStep = "idle" | "instruction" | "progress" | "success" | "fail";
+type ModalPurpose = "activate" | "recalibrate";
+
+const dialSize = "min(80vw, 336px)";
+const CARDINALS: Record<number, string> = { 0: "U", 90: "T", 180: "S", 270: "B" };
+
+// Berapa lama proses "setel ulang" berjalan sebelum dievaluasi hasilnya
+const RESET_DURATION_MS = 5000;
+// Total akumulasi perubahan sudut (derajat) selama proses berlangsung,
+// dipakai sebagai bukti bahwa HP benar-benar digerakkan (bukan cuma didiemin)
+const RESET_MOVE_THRESHOLD = 220;
+// GPS HP biasa jitter ±5-15m walau diem di tempat. Update posisi cuma
+// dianggap valid kalau pergeserannya lebih dari ini, biar gak itung ulang
+// bearing tiap ada getaran receh dari sensor.
+const MIN_LOCATION_DELTA_KM = 0.02;
+
 export default function KiblatPage() {
     const navigate = useNavigate();
     const [hasLocated, setHasLocated] = useState(false);
