@@ -74,6 +74,27 @@ const GEO_OPTIONS_FAST: PositionOptions = { enableHighAccuracy: false, timeout: 
 // padahal cuma butuh waktu lebih.
 const GEO_OPTIONS_PRECISE: PositionOptions = { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 };
 
+// Nerjemahin GeolocationPositionError jadi pesan yang kebaca manusia, PLUS
+// nempelin err.message asli dari browser (contoh: Chrome bakal jelasin
+// eksplisit "Only secure origins are allowed" kalau diakses lewat http://
+// bukan https:///localhost — kasus itu SELALU gagal instan, gak peduli
+// timeout digedein berapa pun, karena browsernya nolak dari awal).
+function describeGeoError(err: GeolocationPositionError): string {
+    const base =
+        err.code === err.PERMISSION_DENIED
+            ? "Izin lokasi ditolak/diblokir browser"
+            : err.code === err.POSITION_UNAVAILABLE
+                ? "Lokasi tidak terdeteksi perangkat"
+                : err.code === err.TIMEOUT
+                    ? "Waktu pencarian lokasi habis"
+                    : "Gagal mengambil lokasi";
+    return err.message ? `${base} (${err.message})` : base;
+}
+
+function logGeoError(context: string, err: GeolocationPositionError) {
+    console.error(`[Kiblat] ${context} — code ${err.code}: ${err.message}`);
+}
+
 export default function KiblatPage() {
     const navigate = useNavigate();
     const [hasLocated, setHasLocated] = useState(false);
@@ -98,6 +119,7 @@ export default function KiblatPage() {
     const [manualMapKey, setManualMapKey] = useState(0);
     const [isPinLifted, setIsPinLifted] = useState(false);
     const [locatingMe, setLocatingMe] = useState(false);
+    const [locationError, setLocationError] = useState<string | null>(null);
     const lastKnownCoordsRef = useRef<Coords | null>(null);
     const mapRef = useRef<LeafletMap | null>(null);
     const geoWatchIdRef = useRef<number | null>(null);
@@ -290,6 +312,7 @@ export default function KiblatPage() {
         requestOrientation();
 
         if (!navigator.geolocation) {
+            setLocationError("Browser tidak mendukung Geolocation API.");
             openManualLocation();
             return;
         }
@@ -297,6 +320,7 @@ export default function KiblatPage() {
         const onLocated = (pos: GeolocationPosition) => {
             const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude };
             lastKnownCoordsRef.current = loc;
+            setLocationError(null);
             computeAndShow(loc.lat, loc.lon);
             setHasLocated(true);
             modalPurposeRef.current = "activate";
@@ -306,17 +330,21 @@ export default function KiblatPage() {
 
         navigator.geolocation.getCurrentPosition(
             onLocated,
-            () => {
+            (err) => {
+                logGeoError("percobaan presisi tinggi", err);
                 // Percobaan presisi tinggi gagal/timeout — paling sering gara-gara
                 // GPS chip belum sempat nangkep sinyal (di dalam ruangan/gedung).
                 // Coba sekali lagi pakai mode cepat (wifi/cell, bukan GPS chip)
                 // sebelum benar-benar nyerah ke lokasi manual.
                 navigator.geolocation.getCurrentPosition(
                     onLocated,
-                    () => {
-                        // Dua-duanya tetap gagal (kemungkinan besar izin lokasi
-                        // ditolak) -> jangan diam-diam nebak Jakarta, biarkan user
-                        // nentuin sendiri titiknya di peta.
+                    (err2) => {
+                        logGeoError("percobaan cepat (fallback)", err2);
+                        // Dua-duanya tetap gagal -> jangan diam-diam nebak Jakarta,
+                        // biarkan user nentuin sendiri titiknya di peta. Simpan
+                        // alasannya biar kelihatan di UI (mis. izin ditolak, atau
+                        // origin gak secure).
+                        setLocationError(describeGeoError(err2));
                         openManualLocation();
                     },
                     GEO_OPTIONS_FAST
@@ -345,6 +373,7 @@ export default function KiblatPage() {
                     const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
                     lastKnownCoordsRef.current = c;
                     setLocatingMe(false);
+                    setLocationError(null);
                     if (mapRef.current) {
                         // flyTo bakal trigger moveend sendiri, yang otomatis
                         // nge-sync manualMarker ke titik baru ini
@@ -353,7 +382,11 @@ export default function KiblatPage() {
                         setManualMarker(c);
                     }
                 },
-                () => setLocatingMe(false),
+                (err) => {
+                    logGeoError("auto-locate modal manual", err);
+                    setLocatingMe(false);
+                    setLocationError(describeGeoError(err));
+                },
                 GEO_OPTIONS_FAST
             );
         }
@@ -388,6 +421,7 @@ export default function KiblatPage() {
             (pos) => {
                 const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
                 setLocatingMe(false);
+                setLocationError(null);
                 if (mapRef.current) {
                     // flyTo bakal trigger moveend sendiri, yang otomatis
                     // nge-sync manualMarker ke titik baru ini
@@ -396,7 +430,11 @@ export default function KiblatPage() {
                     setManualMarker(c);
                 }
             },
-            () => setLocatingMe(false),
+            (err) => {
+                logGeoError("tombol locate-me manual", err);
+                setLocatingMe(false);
+                setLocationError(describeGeoError(err));
+            },
             GEO_OPTIONS_FAST
         );
     };
@@ -637,6 +675,12 @@ export default function KiblatPage() {
                                 Atur Lokasi Manual
                             </button>
                         </div>
+
+                        {locationError && (
+                            <p className="text-[11px] text-red-500 dark:text-red-400 text-center leading-relaxed max-w-[260px]">
+                                {locationError}
+                            </p>
+                        )}
                     </>
                 )}
             </div>
