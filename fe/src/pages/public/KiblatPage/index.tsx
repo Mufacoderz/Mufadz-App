@@ -6,7 +6,6 @@ import type { Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const KAABA = { lat: 21.4225, lon: 39.8262 };
-const JAKARTA = { lat: -6.2088, lon: 106.8456 };
 
 function toRad(d: number) { return d * Math.PI / 180; }
 function toDeg(r: number) { return r * 180 / Math.PI; }
@@ -53,11 +52,8 @@ type ModalPurpose = "activate" | "recalibrate";
 const dialSize = "min(80vw, 336px)";
 const CARDINALS: Record<number, string> = { 0: "U", 90: "T", 180: "S", 270: "B" };
 
-// Berapa lama proses "setel ulang" berjalan sebelum dievaluasi hasilnya
+// Berapa lama animasi arahan "setel ulang" berjalan
 const RESET_DURATION_MS = 5000;
-// Total akumulasi perubahan sudut (derajat) selama proses berlangsung,
-// dipakai sebagai bukti bahwa HP benar-benar digerakkan (bukan cuma didiemin)
-const RESET_MOVE_THRESHOLD = 220;
 // GPS HP biasa jitter ±5-15m walau diem di tempat. Update posisi cuma
 // dianggap valid kalau pergeserannya lebih dari ini, biar gak itung ulang
 // bearing tiap ada getaran receh dari sensor.
@@ -95,6 +91,51 @@ function logGeoError(context: string, err: GeolocationPositionError) {
     console.error(`[Kiblat] ${context} — code ${err.code}: ${err.message}`);
 }
 
+// Dipakai kalau timeout internal di bawah ini yang kena (bukan timeout dari
+// options getCurrentPosition sendiri) -- disusun manual karena
+// GeolocationPositionError gak punya constructor publik buat di-`new`.
+const HARD_TIMEOUT_ERROR: GeolocationPositionError = {
+    code: 3,
+    message: "Timeout internal aplikasi — browser/WebView tidak merespons sama sekali",
+    PERMISSION_DENIED: 1,
+    POSITION_UNAVAILABLE: 2,
+    TIMEOUT: 3,
+};
+
+// Wrapper defensif di atas getCurrentPosition. Beberapa WebView standalone
+// (paling sering PWA iOS yang dibuka dari ikon home-screen) punya bug lama:
+// dialog izin lokasi gagal muncul, dan getCurrentPosition GANTUNG SELAMANYA
+// -- bukan cuma lambat, tapi beneran gak pernah manggil sukses ataupun error,
+// walau opsi `timeout`-nya udah diisi. Race manual pakai setTimeout di sini
+// mastiin kita tetap dapat kepastian dalam waktu terbatas, apapun yang
+// sebenarnya terjadi di level browser/WebView.
+function getPositionWithTimeout(options: PositionOptions, hardTimeoutMs: number): Promise<GeolocationPosition> {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            reject(HARD_TIMEOUT_ERROR);
+        }, hardTimeoutMs);
+
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(pos);
+            },
+            (err) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                reject(err);
+            },
+            options
+        );
+    });
+}
+
 export default function KiblatPage() {
     const navigate = useNavigate();
     const [hasLocated, setHasLocated] = useState(false);
@@ -110,7 +151,6 @@ export default function KiblatPage() {
     // satu komponen modal yang sama (cuma copy teksnya nyesuain)
     const [resetStep, setResetStep] = useState<ResetStep>("idle");
     const [resetProgressPct, setResetProgressPct] = useState(0);
-    const [resetRotationDeg, setResetRotationDeg] = useState(0);
     const modalPurposeRef = useRef<ModalPurpose>("activate");
 
     // Alur "Atur Lokasi Manual" (modal peta)
@@ -130,9 +170,6 @@ export default function KiblatPage() {
 
     const resetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const resetIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-    const resetCumulativeRef = useRef(0);
-    const resetAccuracyStartRef = useRef<number | null>(null);
-    const prevHeadingForResetRef = useRef<number | null>(null);
 
     const ticks = useMemo(() => {
         const items: { deg: number; major: boolean }[] = [];
@@ -245,21 +282,6 @@ export default function KiblatPage() {
         };
     }, []);
 
-    // Akumulasi total perubahan sudut selama proses "progress" berjalan,
-    // ini bukti nyata bahwa HP digerakkan, dipakai buat nentuin sukses/gagal
-    useEffect(() => {
-        if (resetStep !== "progress") {
-            prevHeadingForResetRef.current = null;
-            return;
-        }
-        if (prevHeadingForResetRef.current !== null) {
-            let delta = Math.abs(heading - prevHeadingForResetRef.current);
-            if (delta > 180) delta = 360 - delta;
-            resetCumulativeRef.current += delta;
-        }
-        prevHeadingForResetRef.current = heading;
-    }, [heading, resetStep]);
-
     // Auto-close modal saat berhasil
     useEffect(() => {
         if (resetStep === "success") {
@@ -306,7 +328,7 @@ export default function KiblatPage() {
     // CTA "Aktifkan Otomatis (GPS)". Lokasi & tampilan kiblat langsung
     // ditentukan begitu GPS berhasil — modal figure-8 di bawah ini sifatnya
     // cuma pelengkap buat naikkin akurasi sensor arah, bukan syarat.
-    const handleAutoActivate = () => {
+    const handleAutoActivate = async () => {
         // Diminta di sini, sinkron di dalam handler klik, biar iOS Safari
         // menganggap ini masih bagian dari gesture user (syarat requestPermission()).
         requestOrientation();
@@ -328,67 +350,82 @@ export default function KiblatPage() {
             startWatchingLocation();
         };
 
-        navigator.geolocation.getCurrentPosition(
-            onLocated,
-            (err) => {
-                logGeoError("percobaan presisi tinggi", err);
-                // Percobaan presisi tinggi gagal/timeout — paling sering gara-gara
-                // GPS chip belum sempat nangkep sinyal (di dalam ruangan/gedung).
-                // Coba sekali lagi pakai mode cepat (wifi/cell, bukan GPS chip)
-                // sebelum benar-benar nyerah ke lokasi manual.
-                navigator.geolocation.getCurrentPosition(
-                    onLocated,
-                    (err2) => {
-                        logGeoError("percobaan cepat (fallback)", err2);
-                        // Dua-duanya tetap gagal -> jangan diam-diam nebak Jakarta,
-                        // biarkan user nentuin sendiri titiknya di peta. Simpan
-                        // alasannya biar kelihatan di UI (mis. izin ditolak, atau
-                        // origin gak secure).
-                        setLocationError(describeGeoError(err2));
-                        openManualLocation();
-                    },
-                    GEO_OPTIONS_FAST
-                );
-            },
-            GEO_OPTIONS_PRECISE
-        );
+        try {
+            // 16s: opsi presisinya sendiri udah 15s, dilebihin dikit biar
+            // timeout internal ini gak "menang duluan" pas kondisinya
+            // sebenarnya baik-baik aja & cuma butuh sedikit lebih lama.
+            onLocated(await getPositionWithTimeout(GEO_OPTIONS_PRECISE, 16000));
+        } catch (err1) {
+            logGeoError("percobaan presisi tinggi", err1 as GeolocationPositionError);
+            // Percobaan presisi tinggi gagal/timeout — paling sering gara-gara
+            // GPS chip belum sempat nangkep sinyal (di dalam ruangan/gedung),
+            // atau (di WebView/PWA tertentu) permintaan izinnya gak pernah
+            // kejawab sama sekali. Coba sekali lagi pakai mode cepat (wifi/
+            // cell, bukan GPS chip) sebelum benar-benar nyerah ke manual.
+            try {
+                onLocated(await getPositionWithTimeout(GEO_OPTIONS_FAST, 9000));
+            } catch (err2) {
+                logGeoError("percobaan cepat (fallback)", err2 as GeolocationPositionError);
+                // Dua-duanya tetap gagal -> jangan diam-diam nebak suatu tempat,
+                // biarkan user nentuin sendiri titiknya di peta. Simpan alasannya
+                // biar kelihatan di UI (mis. izin ditolak, atau origin gak secure).
+                setLocationError(describeGeoError(err2 as GeolocationPositionError));
+                openManualLocation();
+            }
+        }
     };
 
-    // Buka modal peta lokasi manual. Titik awal pin dari lokasi terakhir
-    // yang diketahui (kalau ada). Kalau belum ada sama sekali, modal tetap
-    // dibuka instan pakai Jakarta cuma sebagai placeholder sementara — TAPI
-    // langsung nembak lokasi asli user di background, dan begitu dapat,
-    // peta "flyTo" pindah ke situ. Jadi user tinggal geser dikit buat
-    // presisi, bukan geser jauh dari Jakarta ke lokasi aslinya.
+    // Nyari lokasi asli user buat nge-update peta manual di background.
+    // Dipanggil pas modal baru dibuka (kalau belum ada lokasi yang
+    // diketahui) MAUPUN dari tombol "locate-me". Kalau berhasil, peta
+    // "flyTo" pindah dari Ka'bah (atau lokasi lama) ke situ.
+    const attemptManualAutoLocate = async () => {
+        if (!navigator.geolocation) {
+            setLocationError("Browser tidak mendukung Geolocation API.");
+            return;
+        }
+        setLocatingMe(true);
+        try {
+            const pos = await getPositionWithTimeout(GEO_OPTIONS_FAST, 9000);
+            const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            lastKnownCoordsRef.current = c;
+            setLocatingMe(false);
+            setLocationError(null);
+            if (mapRef.current) {
+                // flyTo bakal trigger moveend sendiri, yang otomatis
+                // nge-sync manualMarker ke titik baru ini
+                mapRef.current.flyTo([c.lat, c.lon], 15);
+            } else {
+                setManualMarker(c);
+            }
+        } catch (err) {
+            logGeoError("auto-locate modal manual", err as GeolocationPositionError);
+            setLocatingMe(false);
+            setLocationError(describeGeoError(err as GeolocationPositionError));
+        }
+    };
+
+    // Buka modal peta lokasi manual. Kalau lokasi user udah diketahui (dari
+    // GPS/manual sebelumnya), langsung dipakai sebagai titik awal peta.
+    // Kalau belum ada sama sekali, peta dibuka INSTAN di Ka'bah — bukan
+    // Jakarta, biar defaultnya masuk akal buat siapapun di dunia, bukan
+    // cuma yang kebetulan deket Jakarta — SAMBIL langsung nyari lokasi asli
+    // user di background; begitu dapat, peta "flyTo" pindah dari Ka'bah ke
+    // situ, jadi user tinggal geser dikit dari sana buat presisi.
     const openManualLocation = () => {
-        const seed = lastKnownCoordsRef.current ?? { lat: JAKARTA.lat, lon: JAKARTA.lon };
-        setManualMarker(seed);
+        // Diminta di sini juga (bukan cuma di handleAutoActivate), biar
+        // jalur "Atur Lokasi Manual" langsung dari awal -- tanpa pernah
+        // pencet GPS sama sekali -- tetap minta izin sensor arah. Kalau
+        // enggak, kompas kelihatan "diem aja" walau lokasi udah di-set,
+        // karena listener deviceorientation-nya emang belum pernah dipasang.
+        requestOrientation();
+
         setManualMapKey((k) => k + 1);
         setManualModalOpen(true);
+        setManualMarker(lastKnownCoordsRef.current ?? { lat: KAABA.lat, lon: KAABA.lon });
 
-        if (!lastKnownCoordsRef.current && navigator.geolocation) {
-            setLocatingMe(true);
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-                    lastKnownCoordsRef.current = c;
-                    setLocatingMe(false);
-                    setLocationError(null);
-                    if (mapRef.current) {
-                        // flyTo bakal trigger moveend sendiri, yang otomatis
-                        // nge-sync manualMarker ke titik baru ini
-                        mapRef.current.flyTo([c.lat, c.lon], 15);
-                    } else {
-                        setManualMarker(c);
-                    }
-                },
-                (err) => {
-                    logGeoError("auto-locate modal manual", err);
-                    setLocatingMe(false);
-                    setLocationError(describeGeoError(err));
-                },
-                GEO_OPTIONS_FAST
-            );
+        if (!lastKnownCoordsRef.current) {
+            attemptManualAutoLocate();
         }
     };
 
@@ -403,6 +440,12 @@ export default function KiblatPage() {
         computeAndShow(manualMarker.lat, manualMarker.lon);
         setHasLocated(true);
         setManualModalOpen(false);
+        // Sama kayak jalur GPS: begitu lokasi di-set, tawarin animasi arahan
+        // angka-8 buat kalibrasi kompas (skip-able via "Lewati"). Aman
+        // dipasang di sini sekarang karena modalnya udah gak ada logic
+        // sukses/gagal yang bisa "gagal palsu" -- murni instruksional.
+        modalPurposeRef.current = "activate";
+        setResetStep("instruction");
     };
 
     const handleMapMoveEnd = useCallback((c: Coords) => {
@@ -414,29 +457,26 @@ export default function KiblatPage() {
         setIsPinLifted(true);
     }, []);
 
-    const locateMeInManual = () => {
+    const locateMeInManual = async () => {
         if (!navigator.geolocation) return;
         setLocatingMe(true);
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-                setLocatingMe(false);
-                setLocationError(null);
-                if (mapRef.current) {
-                    // flyTo bakal trigger moveend sendiri, yang otomatis
-                    // nge-sync manualMarker ke titik baru ini
-                    mapRef.current.flyTo([c.lat, c.lon], 15);
-                } else {
-                    setManualMarker(c);
-                }
-            },
-            (err) => {
-                logGeoError("tombol locate-me manual", err);
-                setLocatingMe(false);
-                setLocationError(describeGeoError(err));
-            },
-            GEO_OPTIONS_FAST
-        );
+        try {
+            const pos = await getPositionWithTimeout(GEO_OPTIONS_FAST, 9000);
+            const c = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            setLocatingMe(false);
+            setLocationError(null);
+            if (mapRef.current) {
+                // flyTo bakal trigger moveend sendiri, yang otomatis
+                // nge-sync manualMarker ke titik baru ini
+                mapRef.current.flyTo([c.lat, c.lon], 15);
+            } else {
+                setManualMarker(c);
+            }
+        } catch (err) {
+            logGeoError("tombol locate-me manual", err as GeolocationPositionError);
+            setLocatingMe(false);
+            setLocationError(describeGeoError(err as GeolocationPositionError));
+        }
     };
 
     // Buka modal "Setel Ulang Arah" (recalibrasi, dipakai setelah aktif).
@@ -458,10 +498,6 @@ export default function KiblatPage() {
     };
 
     const beginReset = useCallback(() => {
-        resetCumulativeRef.current = 0;
-        prevHeadingForResetRef.current = null;
-        resetAccuracyStartRef.current = accuracy;
-        setResetRotationDeg(0);
         setResetProgressPct(0);
         setResetStep("progress");
 
@@ -470,27 +506,27 @@ export default function KiblatPage() {
         resetIntervalRef.current = setInterval(() => {
             const pct = Math.min(100, ((Date.now() - startedAt) / RESET_DURATION_MS) * 100);
             setResetProgressPct(pct);
-            setResetRotationDeg(Math.round(resetCumulativeRef.current));
         }, 100);
 
         clearTimeout(resetTimerRef.current);
         resetTimerRef.current = setTimeout(() => {
             clearInterval(resetIntervalRef.current);
-            const startAcc = resetAccuracyStartRef.current;
-            const improvedAccuracy =
-                accuracy !== null && accuracy <= 25 && (startAcc === null || accuracy < startAcc);
-            const movedEnough = resetCumulativeRef.current >= RESET_MOVE_THRESHOLD;
-
+            // Sengaja gak lagi nge-gate "sukses" ke akurasi sensor atau jumlah
+            // rotasi: webkitCompassAccuracy cuma ada di iOS Safari (di
+            // Chrome/Android selalu null), dan threshold rotasi kumulatif
+            // gampang meleset dari gestur figure-8 yang orang beneran
+            // lakuin (gerakan spasial, bukan muter kompas/yaw penuh) — dua-
+            // duanya bikin ini "selalu gagal" walau HP-nya digerakkan.
+            // Satu-satunya kegagalan nyata yang kita bisa deteksi beneran
+            // adalah kalau sensornya emang gak pernah ngasih data sama sekali.
             if (sensorError) {
                 setResetStep("fail");
-            } else if (improvedAccuracy || movedEnough) {
+            } else {
                 if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
                 setResetStep("success");
-            } else {
-                setResetStep("fail");
             }
         }, RESET_DURATION_MS);
-    }, [accuracy, sensorError]);
+    }, [sensorError]);
 
     const accuracyLabel = accuracy == null
         ? "Akurasi belum terdeteksi"
@@ -743,6 +779,24 @@ export default function KiblatPage() {
                                     className={`text-textLight dark:text-textDark ${locatingMe ? "animate-spin" : ""}`}
                                 />
                             </button>
+
+                            {/* Status nyari-lokasi/gagal — nempel DI ATAS peta (bukan di layar
+                                belakang modal kayak sebelumnya), biar keliatan walau titik
+                                awalnya masih di Ka'bah */}
+                            {(locatingMe || locationError) && (
+                                <div className="absolute top-3 left-3 right-12 z-[500] rounded-xl bg-white/95 dark:bg-gray-800/95 shadow-md border border-gray-200 dark:border-gray-700 px-3 py-2">
+                                    {locatingMe ? (
+                                        <p className="text-[11px] font-medium text-textLight dark:text-textDark flex items-center gap-1.5">
+                                            <LocateFixed size={12} className="animate-spin shrink-0" />
+                                            Mencari lokasimu...
+                                        </p>
+                                    ) : (
+                                        <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400 leading-snug">
+                                            {locationError} — geser peta ke lokasimu, atau pakai tombol locate di pojok kiri bawah.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex flex-col items-center gap-3 p-5">
@@ -819,9 +873,6 @@ export default function KiblatPage() {
                                         style={{ width: `${resetProgressPct}%` }}
                                     />
                                 </div>
-                                <p className="text-[11px] font-mono text-gray-400 dark:text-gray-600">
-                                    Rotasi terdeteksi: {resetRotationDeg}°
-                                </p>
                             </>
                         )}
 
@@ -845,10 +896,10 @@ export default function KiblatPage() {
                                     <AlertTriangle className="w-9 h-9 text-amber-500" />
                                 </div>
                                 <h2 className="text-base font-bold text-amber-600 dark:text-amber-400">
-                                    Belum berhasil
+                                    Sensor tidak merespons
                                 </h2>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                                    {sensorError ?? "Gerakan belum cukup terdeteksi. Coba gerakkan HP lebih tegas membentuk pola angka 8, jauh dari benda logam atau magnet."}
+                                    {sensorError ?? "Sensor kompas tidak mengirim data sama sekali. Pastikan browser diizinkan mengakses sensor gerak, lalu coba lagi."}
                                 </p>
                                 <div className="flex gap-2 w-full mt-1">
                                     <button
