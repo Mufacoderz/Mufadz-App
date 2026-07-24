@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Repeat, X, RotateCcw } from "lucide-react";
 import DoaCard from "../../../components/public/Doa/DoaCard";
 
@@ -48,26 +48,59 @@ const bacaanList: Bacaan[] = [
     },
 ];
 
+// Satu putaran tasbih tradisional = 33 hitungan — angka yang sama juga
+// dipakai di bacaan Tasbih/Tahmid/Takbir/Tahlil pada daftar di atas.
+const LAP_SIZE = 33;
+
 export default function ZikirPage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [count, setCount] = useState(0);
+    const [justCompletedLap, setJustCompletedLap] = useState(false);
+    const milestoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    useEffect(() => {
+        return () => clearTimeout(milestoneTimeoutRef.current);
+    }, []);
+
+    // Posisi dalam putaran saat ini (1..33), dan lagi di putaran ke berapa.
+    // Kelipatan LAP_SIZE sengaja dianggap "putaran itu penuh" (33/33), bukan
+    // balik ke 0 -- biar cincinnya nunjukin lingkaran utuh pas baru selesai,
+    // persis kayak manik terakhir tasbih sebelum pindah ke untai berikutnya.
+    const lapProgress = count === 0 ? 0 : count % LAP_SIZE === 0 ? LAP_SIZE : count % LAP_SIZE;
+    const currentLap = count === 0 ? 1 : count % LAP_SIZE === 0 ? count / LAP_SIZE : Math.floor(count / LAP_SIZE) + 1;
+    const ringPct = (lapProgress / LAP_SIZE) * 100;
 
     const handleTap = () => {
-        setCount((c) => c + 1);
-        if (navigator.vibrate) {
-            navigator.vibrate(10);
-        }
+        setCount((c) => {
+            const next = c + 1;
+            const completedLap = next % LAP_SIZE === 0;
+            if (navigator.vibrate) {
+                // Getaran beda pas nyelesain 1 putaran penuh (33/66/99...),
+                // biar kerasa walau mata merem/gak liat layar
+                navigator.vibrate(completedLap ? [15, 40, 15] : 8);
+            }
+            if (completedLap) {
+                setJustCompletedLap(true);
+                clearTimeout(milestoneTimeoutRef.current);
+                milestoneTimeoutRef.current = setTimeout(() => setJustCompletedLap(false), 900);
+            }
+            return next;
+        });
     };
 
     const handleReset = (e: React.MouseEvent) => {
         e.stopPropagation();
         setCount(0);
+        setJustCompletedLap(false);
+        clearTimeout(milestoneTimeoutRef.current);
     };
 
     const handleClose = (e: React.MouseEvent) => {
         e.stopPropagation();
         setModalOpen(false);
         setCount(0);
+        setJustCompletedLap(false);
+        clearTimeout(milestoneTimeoutRef.current);
     };
 
     return (
@@ -103,26 +136,62 @@ export default function ZikirPage() {
 
             {modalOpen && (
                 <div
-                    className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white dark:bg-gray-900 select-none"
+                    className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-b from-blue-50 via-white to-white dark:from-gray-950 dark:via-gray-900 dark:to-gray-900 select-none animate-modal-pop"
                     onClick={handleTap}
                 >
                     <button
                         onClick={handleClose}
-                        className="absolute top-6 right-6 z-10 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        aria-label="Tutup"
+                        className="absolute top-5 right-5 z-10 w-12 h-12 rounded-full bg-white dark:bg-gray-800 shadow-md border border-blue-100 dark:border-gray-700 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
                     >
-                        <X size={24} className="text-gray-400 dark:text-gray-500" />
+                        <X size={26} className="text-gray-500 dark:text-gray-300" />
                     </button>
 
-                    <p className="text-8xl font-bold text-textLight dark:text-textDark tabular-nums select-none pointer-events-none">
-                        {count}
+                    <div
+                        className="relative flex items-center justify-center pointer-events-none"
+                        style={{ width: "min(70vw, 300px)", height: "min(70vw, 300px)" }}
+                    >
+                        <svg
+                            viewBox="0 0 100 100"
+                            className={`absolute inset-0 -rotate-90 transition-[filter] duration-500 ${justCompletedLap ? "drop-shadow-[0_0_20px_rgba(59,130,246,0.6)]" : ""
+                                }`}
+                        >
+                            <circle cx="50" cy="50" r="45" fill="none" strokeWidth="5" className="stroke-blue-100 dark:stroke-gray-800" />
+                            <circle
+                                cx="50" cy="50" r="45" fill="none" strokeWidth="5" strokeLinecap="round"
+                                className="stroke-textLight dark:stroke-textDark transition-[stroke-dashoffset] duration-300 ease-out"
+                                style={{
+                                    strokeDasharray: 2 * Math.PI * 45,
+                                    strokeDashoffset: 2 * Math.PI * 45 * (1 - ringPct / 100),
+                                }}
+                            />
+                        </svg>
+
+                        <div className="flex flex-col items-center">
+                            <p
+                                className="text-7xl font-bold text-textLight dark:text-textDark tabular-nums"
+                                style={{ fontFamily: "'Changa', sans-serif" }}
+                            >
+                                {count}
+                            </p>
+                            {count > 0 && (
+                                <span className="mt-1 text-[11px] font-semibold tracking-widest text-gray-400 dark:text-gray-500 uppercase">
+                                    Putaran ke-{currentLap}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <p className="mt-3 text-xs text-gray-400 dark:text-gray-600 pointer-events-none">
+                        {count === 0 ? "Tap layar buat mulai menghitung" : "Tap layar buat lanjut menghitung"}
                     </p>
 
                     <button
                         onClick={handleReset}
-                        className="absolute bottom-10 flex items-center gap-1.5 text-sm text-gray-400 dark:text-gray-500 underline hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        aria-label="Reset hitungan"
+                        className="absolute bottom-9 w-11 h-11 rounded-full bg-white dark:bg-gray-800 shadow-md border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:scale-105 active:scale-95 transition-all"
                     >
-                        <RotateCcw size={14} />
-                        Reset
+                        <RotateCcw size={22} />
                     </button>
                 </div>
             )}
