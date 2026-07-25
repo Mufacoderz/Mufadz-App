@@ -3,12 +3,44 @@ import { useNavigate } from "react-router-dom";
 import { Navigation, X, Smartphone, CheckCircle2, AlertTriangle, MapPin, LocateFixed } from "lucide-react";
 import { MapContainer, TileLayer, useMapEvents } from "react-leaflet";
 import type { Map as LeafletMap } from "leaflet";
+import { model as getGeomagModel } from "geomagnetism";
 import "leaflet/dist/leaflet.css";
 
 const KAABA = { lat: 21.4225, lon: 39.8262 };
 
+// Model medan magnet bumi (World Magnetic Model) -- dipakai buat ngoreksi
+// heading dari kompas (yang selalu relatif ke utara MAGNETIK) jadi utara
+// SEBENARNYA (true north), soalnya bearing ke Ka'bah dihitung dari
+// koordinat geografis (utara sebenarnya). Dihitung sekali di module scope,
+// query per-titik-nya murah.
+// allowOutOfBoundsModel: true -> kalau suatu saat package ini gak
+// di-update lagi dan tanggal sekarang udah lewat masa berlaku model yang
+// ke-bundle, dia fallback ke model terdekat yang ada (declinasi makin
+// meleset dikit tiap tahun makin jauh dari validitasnya) alih-alih throw
+// error dan bikin seluruh halaman kiblat gak kepake sama sekali.
+const geomagModel = getGeomagModel(undefined, { allowOutOfBoundsModel: true });
+
 function toRad(d: number) { return d * Math.PI / 180; }
 function toDeg(r: number) { return r * 180 / Math.PI; }
+
+// Rumus resmi dari W3C Device Orientation spec ("Calculating compass
+// heading", non-normative worked example) buat dapetin heading yang BENAR
+// walau HP dipegang miring/tegak -- bukan cuma rata di meja. Rumus naif
+// "(360 - alpha) % 360" CUMA valid kalau beta=gamma=0 (device rata); makin
+// miring, hasilnya makin meleset -- inilah kenapa dial-nya bisa "gerak tapi
+// arahnya salah". Rumus tilt-compensated ini sendiri justru SINGULAR persis
+// pas rata (0/0), jadi kita fallback ke rumus simpel di sekitar titik itu.
+function tiltCompensatedHeading(alphaDeg: number, betaDeg: number, gammaDeg: number): number {
+    if (Math.abs(betaDeg) < 15 && Math.abs(gammaDeg) < 15) {
+        return (360 - alphaDeg) % 360;
+    }
+    const x = toRad(betaDeg), y = toRad(gammaDeg), z = toRad(alphaDeg);
+    const cY = Math.cos(y), cZ = Math.cos(z);
+    const sX = Math.sin(x), sY = Math.sin(y), sZ = Math.sin(z);
+    const Vx = -cZ * sY - sZ * sX * cY;
+    const Vy = -sZ * sY + cZ * sX * cY;
+    return (toDeg(Math.atan2(Vx, Vy)) + 360) % 360;
+}
 
 function computeBearing(lat1: number, lon1: number, lat2: number, lon2: number) {
     const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lon2 - lon1);
@@ -165,6 +197,7 @@ export default function KiblatPage() {
     const geoWatchIdRef = useRef<number | null>(null);
 
     const headingRef = useRef(0);
+    const declinationRef = useRef(0);
     const sensorWatchdogRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const sensorRequestedRef = useRef(false);
 
@@ -203,19 +236,24 @@ export default function KiblatPage() {
     const computeAndShow = useCallback((lat: number, lon: number) => {
         const b = computeBearing(lat, lon, KAABA.lat, KAABA.lon);
         const d = computeDistance(lat, lon, KAABA.lat, KAABA.lon);
+        declinationRef.current = geomagModel.point([lat, lon]).decl;
         setBearing(b);
         setDistanceKm(d);
         updateCompass(headingRef.current, b, d);
     }, [updateCompass]);
 
     const handleOrientation = useCallback((e: DeviceOrientationEvent) => {
-        let h: number | null = null;
+        let magneticHeading: number | null = null;
         const we = e as DeviceOrientationEvent & { webkitCompassHeading?: number; webkitCompassAccuracy?: number };
         if (typeof we.webkitCompassHeading === "number") {
-            h = we.webkitCompassHeading;
+            // iOS Safari: sudah tilt-compensated otomatis oleh WebKit, tapi
+            // masih relatif ke utara MAGNETIK.
+            magneticHeading = we.webkitCompassHeading;
             setAccuracy(we.webkitCompassAccuracy ?? null);
-        } else if (e.alpha !== null) {
-            h = (360 - e.alpha) % 360;
+        } else if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
+            // Browser lain (Android Chrome dkk): perlu hitung sendiri, dan
+            // WAJIB tilt-compensated -- lihat komentar di tiltCompensatedHeading.
+            magneticHeading = tiltCompensatedHeading(e.alpha, e.beta, e.gamma);
             setAccuracy(null);
         } else {
             return;
@@ -223,7 +261,10 @@ export default function KiblatPage() {
         setUsingRealSensor(true);
         clearTimeout(sensorWatchdogRef.current);
         setSensorError(null);
-        headingRef.current = (h + 360) % 360;
+        // Utara magnetik -> utara sebenarnya, biar sepadan sama bearing ke
+        // Ka'bah (yang dihitung dari koordinat geografis / utara sebenarnya)
+        const trueHeading = (magneticHeading + declinationRef.current + 360) % 360;
+        headingRef.current = trueHeading;
         updateCompass(headingRef.current, bearing, distanceKm);
     }, [bearing, distanceKm, updateCompass]);
 
