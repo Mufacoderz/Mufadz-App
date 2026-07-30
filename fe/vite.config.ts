@@ -15,7 +15,7 @@ export default defineConfig({
       manifest: {
         name: "Mufadz Portal",
         short_name: "Mufadz",
-        description: "Web App Islamic Multi Fitur - Al-Qur'an, Doa, Adzan, Kiblat, dan lain-lain",
+        description: "Web App Islamic Multi Fitur - Al-Qur'an, Doa, Adzan, dan lain-lain",
         start_url: "/",
         display: "standalone",
         display_override: ["standalone", "minimal-ui"],

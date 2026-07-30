@@ -30,7 +30,7 @@ const Hero = () => {
 
             <p className="text-gray-500 dark:text-gray-300 text-lg sm:text-xl max-w-full leading-relaxed mx-auto lg:mx-0">
                 Aplikasi pendukung kehidupan Muslim modern — dengan jadwal sholat,
-                arah kiblat, dan fitur Islami lainnya dalam satu tempat.
+                dan fitur Islami lainnya dalam satu tempat.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start flex-wrap mx-auto sm:m-0 w-[70%] sm:w-full">

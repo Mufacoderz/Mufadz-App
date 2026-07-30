@@ -9,7 +9,6 @@ import {
     Heart,
     UserCircle,
     HelpCircle,
-    Compass,
     HandCoins,
     HandHeart,
 } from "lucide-react";
@@ -34,7 +33,6 @@ const Sidebar = () => {
         { name: "Home", path: "/", icon: <Home size={20} />, auth: false },
         { name: "Baca Quran", path: "/quran", icon: <BookOpen size={20} />, auth: false },
         { name: "Daftar Do'a", path: "/doa", icon: <Heart size={20} />, auth: false },
-        { name: "Kiblat", path: "/kiblat", icon: <Compass size={20} />, auth: false },
         { name: "Zikir", path: "/zikir", icon: <HandHeart size={20} />, auth: false },
         { name: "Zakat", path: "/zakat", icon: <HandCoins size={20} />, auth: false },
         { name: "Profile", path: "/profile", icon: <User size={20} />, auth: true },
