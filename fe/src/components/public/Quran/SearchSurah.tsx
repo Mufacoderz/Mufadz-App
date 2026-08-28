@@ -7,13 +7,23 @@ type SearchSurahProps = {
 };
 
 // debounce helper — tunda eksekusi sampai user berhenti ngetik
-function useDebounce<T>(value: T, delay: number): T {
+function useDebounce<T>(value: T, delay: number): [T, () => void] {
     const [debounced, setDebounced] = useState(value);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
-        const timer = setTimeout(() => setDebounced(value), delay);
-        return () => clearTimeout(timer);
+        timerRef.current = setTimeout(() => setDebounced(value), delay);
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
     }, [value, delay]);
-    return debounced;
+
+    const reset = useCallback(() => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setDebounced(value);
+    }, [value]);
+
+    return [debounced, reset];
 }
 
 function SearchSurah({ onSearch, surahs = [] }: SearchSurahProps) {
@@ -21,12 +31,15 @@ function SearchSurah({ onSearch, surahs = [] }: SearchSurahProps) {
     const [isFocused, setIsFocused] = useState(false);
     const [suggestions, setSuggestions] = useState<Surah[]>([]);
     const inputRef = useRef<HTMLInputElement>(null);
+    const justSelectedRef = useRef(false);
 
-    // query yg "asli" update tiap keystroke (biar input responsif)
-    // tapi filtering & onSearch baru jalan setelah 250ms tidak ada ketikan
-    const debouncedQuery = useDebounce(query, 250);
+    const [debouncedQuery, resetDebounce] = useDebounce(query, 250);
 
     useEffect(() => {
+        if (justSelectedRef.current) {
+            justSelectedRef.current = false;
+            return;
+        }
         const q = debouncedQuery.trim().toLowerCase();
         if (!q) {
             setSuggestions([]);
@@ -53,11 +66,13 @@ function SearchSurah({ onSearch, surahs = [] }: SearchSurahProps) {
     const handleClear = useCallback(() => {
         setQuery("");
         setSuggestions([]);
+        resetDebounce();
         onSearch("");
         inputRef.current?.focus();
-    }, [onSearch]);
+    }, [onSearch, resetDebounce]);
 
     const handleSelectSuggestion = useCallback((surah: Surah) => {
+        justSelectedRef.current = true;
         setQuery(surah.namaLatin);
         onSearch(surah.namaLatin);
         setSuggestions([]);
@@ -90,10 +105,7 @@ function SearchSurah({ onSearch, surahs = [] }: SearchSurahProps) {
                     value={query}
                     onChange={handleChange}
                     onFocus={() => setIsFocused(true)}
-                    onBlur={() => {
-                        setIsFocused(false);
-                        setTimeout(() => setSuggestions([]), 150);
-                    }}
+                    onBlur={() => setIsFocused(false)}
                     placeholder="Cari surah atau arti..."
                     className="flex-1 bg-transparent outline-none text-sm text-gray-700 dark:text-gray-300
                         placeholder:text-gray-400 dark:placeholder:text-gray-500"

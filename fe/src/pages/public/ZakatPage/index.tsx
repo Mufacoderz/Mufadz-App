@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { Wheat, Briefcase, PiggyBank } from "lucide-react";
 import HeadingPage from "../../../components/public/Heading";
 
@@ -44,7 +45,12 @@ export default function ZakatPage() {
         : 0;
 
     return (
-        <div className="w-full dark:bg-gray-900 min-h-screen p-4 md:p-8">
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+            className="w-full dark:bg-gray-900 min-h-screen p-4 md:p-8"
+        >
             <div className="max-w-2xl mx-auto space-y-6">
                 <HeadingPage title="Kalkulator Zakat" subtitle="Hitung zakat fitrah, penghasilan, dan maal" />
 
@@ -238,6 +244,6 @@ export default function ZakatPage() {
                     </div>
                 )}
             </div>
-        </div>
+        </motion.div>
     );
 }

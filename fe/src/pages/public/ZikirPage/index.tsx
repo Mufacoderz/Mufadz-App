@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Repeat, X, RotateCcw } from "lucide-react";
 import DoaCard from "../../../components/public/Doa/DoaCard";
 import HeadingPage from "../../../components/public/Heading";
@@ -105,7 +106,12 @@ export default function ZikirPage() {
     };
 
     return (
-        <div className="w-full dark:bg-gray-900 min-h-screen p-4 md:p-8">
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+            className="w-full dark:bg-gray-900 min-h-screen p-4 md:p-8"
+        >
             <div className="max-w-2xl mx-auto space-y-6">
                 <HeadingPage title="Zikir & Dzikir" subtitle="Bacaan zikir harian dengan fitur tasbih digital" />
 
@@ -196,6 +202,6 @@ export default function ZikirPage() {
                     </button>
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 }

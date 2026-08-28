@@ -37,19 +37,23 @@ const Hero = () => {
                 <motion.div
                     animate={{ y: [0, -10, 0] }}
                     transition={{ duration: 2, ease: "easeInOut", repeat: Infinity }}
-                    className="px-6 py-3 bg-textLight dark:bg-textDark text-white dark:text-gray-800 font-semibold rounded-xl shadow-md hover:bg-blue-700 dark:hover:bg-blue-200 hover:shadow-lg transition-all"
                 >
-                    <Link to={"/quran"}>
-                        Baca Qur'an 
+                    <Link
+                        to="/quran"
+                        className="block px-6 py-3 bg-textLight dark:bg-textDark text-white dark:text-gray-800 font-semibold rounded-xl shadow-md hover:bg-blue-700 dark:hover:bg-blue-200 hover:shadow-lg transition-all"
+                    >
+                        Baca Qur'an
                     </Link>
                 </motion.div>
 
                 <motion.div
                     animate={{ y: [0, -10, 0] }}
                     transition={{ duration: 2, ease: "easeInOut", repeat: Infinity }}
-                    className="px-6 py-3 bg-transparent dark:border-textDark border-2 border-textLight text-textLight dark:text-textDark dark:hover:text-gray-800 font-semibold rounded-xl hover:bg-textLight hover:text-white dark:hover:bg-textDark transition-all"
                 >
-                    <Link to={"/register"}>
+                    <Link
+                        to="/register"
+                        className="block px-6 py-3 bg-transparent dark:border-textDark border-2 border-textLight text-textLight dark:text-textDark dark:hover:text-gray-800 font-semibold rounded-xl hover:bg-textLight hover:text-white dark:hover:bg-textDark transition-all"
+                    >
                         Gabung Sekarang
                     </Link>
                 </motion.div>

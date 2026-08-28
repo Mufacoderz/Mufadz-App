@@ -1,4 +1,4 @@
-import { BookOpen, MessageCircle, Calendar, User, Sun, Feather } from "lucide-react"
+import { BookOpen, MessageCircle, Calendar, User, Sun, Feather, Repeat, Wheat, Bot } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 
 const PanduanList = () => {
@@ -18,6 +18,27 @@ const PanduanList = () => {
             icon: <BookOpen className="w-4 h-4" />,
             iconBg: "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400",
             path: "/quran",
+        },
+        {
+            title: "Dzikir",
+            desc: "Bacaan zikir harian dengan fitur tasbih digital untuk menghitungWirid.",
+            icon: <Repeat className="w-4 h-4" />,
+            iconBg: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400",
+            path: "/zikir",
+        },
+        {
+            title: "Kalkulator Zakat",
+            desc: "Hitung zakat fitrah, penghasilan, dan maal dengan mudah dan akurat.",
+            icon: <Wheat className="w-4 h-4" />,
+            iconBg: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400",
+            path: "/zakat",
+        },
+        {
+            title: "Chatbot AI",
+            desc: "Tanya jawab seputar Al-Quran, hadits, doa, atau topik umum lainnya.",
+            icon: <Bot className="w-4 h-4" />,
+            iconBg: "bg-cyan-50 text-cyan-600 dark:bg-cyan-950 dark:text-cyan-400",
+            path: "/chatbot",
         },
         {
             title: "Forum Chat",

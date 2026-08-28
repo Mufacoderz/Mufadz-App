@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Sparkles, CalendarX2 } from "lucide-react"
 import { getHijriCalendar, type HijriDayData } from "../../../api/aladhan"
+import { translateHoliday } from "../../../constants/holidayTranslations"
 
 const hijriMonthNames = [
     "Muharram", "Safar", "Rabi'ul Awal", "Rabi'ul Akhir",
@@ -47,7 +48,9 @@ const KalenderModern = () => {
     const [loading, setLoading] = useState(false)
     const [fetchError, setFetchError] = useState(false)
     const [hariPentingOffset, setHariPentingOffset] = useState(0)
-    const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set())
+    const [expandedDay, setExpandedDay] = useState<number | null>(null)
+    const [truncatedDays, setTruncatedDays] = useState<Set<number>>(new Set())
+    const textContainerRef = useRef<HTMLDivElement>(null)
 
     const today = new Date()
     const targetDate = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1)
@@ -69,7 +72,8 @@ const KalenderModern = () => {
         setFetchError(false)
         setApiData(null)
         setHariPentingOffset(0)
-        setExpandedDays(new Set())
+        setExpandedDay(null)
+        setTruncatedDays(new Set())
 
         getHijriCalendar(apiMonth, apiYear)
             .then((data) => {
@@ -128,6 +132,17 @@ const KalenderModern = () => {
             .sort((a, b) => a.gregorianDay - b.gregorianDay)
     }, [apiData])
 
+    useEffect(() => {
+        if (!textContainerRef.current) return
+        const els = textContainerRef.current.querySelectorAll<HTMLElement>("[data-truncate]")
+        const next = new Set<number>()
+        els.forEach((el) => {
+            const day = Number(el.dataset.truncate)
+            if (el.scrollWidth > el.clientWidth) next.add(day)
+        })
+        setTruncatedDays(next)
+    }, [hariPentingList, hariPentingOffset, expandedDay])
+
     return (
         <div
             className="
@@ -146,7 +161,6 @@ const KalenderModern = () => {
                 "
             >
                 <motion.div
-                    layout
                     className="absolute top-1 bottom-1 w-1/2 rounded-full bg-textLight dark:bg-textDark shadow-md"
                     animate={{ x: activeTab === "kalender" ? 0 : "100%" }}
                     transition={{ type: "spring", stiffness: 400, damping: 30 }}
@@ -247,6 +261,7 @@ const KalenderModern = () => {
                                                 ? "bg-textLight dark:bg-textDark text-white dark:text-gray-800 border-textDark dark:border-gray-800 shadow-md"
                                                 : "text-gray-700 hover:bg-blue-50 border-transparent dark:text-gray-200 dark:hover:bg-gray-800"
                                             }
+                                            ${(hasHoliday || isSunnaDay) && !isToday ? "bg-blue-50/60 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/50" : ""}
                                         `}
                                     >
                                         <span className={`text-base sm:text-lg leading-tight ${isToday ? "font-bold" : "font-semibold"}`}>
@@ -255,9 +270,6 @@ const KalenderModern = () => {
                                         <span className={`text-[10px] sm:text-xs leading-tight mt-0.5 ${isToday ? "text-white/80 dark:text-gray-800/80" : "text-gray-400 dark:text-gray-500"}`}>
                                             {cell.hijriDay} {hijriMonthNames[cell.hijriMonth]?.slice(0, 3)}
                                         </span>
-                                        {(hasHoliday || isSunnaDay) && !isToday && (
-                                            <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-textLight dark:bg-textDark" />
-                                        )}
                                     </div>
                                 )
                             })}
@@ -280,16 +292,31 @@ const KalenderModern = () => {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="flex flex-col gap-2">
+                                    <div ref={textContainerRef} className="flex flex-col gap-2">
                                         {hariPentingList.slice(hariPentingOffset, hariPentingOffset + 5).map((item) => {
-                                            const isExpanded = expandedDays.has(item.gregorianDay)
+                                            const isExpanded = expandedDay === item.gregorianDay
                                             const hasMultiple = item.holidays.length > 1
+                                            const isTruncated = truncatedDays.has(item.gregorianDay)
+                                            const toggleExpanded = () => {
+                                                setExpandedDay(isExpanded ? null : item.gregorianDay)
+                                            }
                                             return (
                                                 <div
                                                     key={item.gregorianDay}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={toggleExpanded}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Enter" || e.key === " ") {
+                                                            e.preventDefault()
+                                                            toggleExpanded()
+                                                        }
+                                                    }}
                                                     className="
-                                                        flex gap-3 p-3 rounded-xl border
-                                                        bg-white/70 border-blue-100 dark:bg-gray-800/60 dark:border-gray-700
+                                                        flex gap-3 p-3 rounded-xl border min-w-0 cursor-pointer select-none
+                                                        bg-white/70 border-blue-100 hover:bg-blue-50/70
+                                                        dark:bg-gray-800/60 dark:border-gray-700 dark:hover:bg-gray-800
+                                                        transition-colors
                                                     "
                                                 >
                                                     <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg bg-blue-50 dark:bg-gray-700 shrink-0">
@@ -301,13 +328,12 @@ const KalenderModern = () => {
                                                         </span>
                                                     </div>
                                                     <div className="flex-1 min-w-0">
-                                                        {!isExpanded && (
-                                                            <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                                                                {item.holidays[0]}
+                                                        {!isExpanded ? (
+                                                            <p data-truncate={item.gregorianDay} className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                                                                {translateHoliday(item.holidays[0])}
                                                             </p>
-                                                        )}
-                                                        <AnimatePresence>
-                                                            {isExpanded && (
+                                                        ) : (
+                                                            <AnimatePresence initial={false}>
                                                                 <motion.ul
                                                                     initial={{ height: 0, opacity: 0 }}
                                                                     animate={{ height: "auto", opacity: 1 }}
@@ -318,29 +344,29 @@ const KalenderModern = () => {
                                                                     {item.holidays.map((h, i) => (
                                                                         <li key={i} className="flex items-start gap-1.5">
                                                                             <span className="text-textLight dark:text-textDark mt-0.5">•</span>
-                                                                            <span>{h}</span>
+                                                                            <span>{translateHoliday(h)}</span>
                                                                         </li>
                                                                     ))}
                                                                 </motion.ul>
-                                                            )}
-                                                        </AnimatePresence>
+                                                            </AnimatePresence>
+                                                        )}
                                                         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                                             {item.hijriDay} {item.hijriMonthName} {item.hijriYear} H
                                                         </p>
-                                                        {hasMultiple && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    const next = new Set(expandedDays)
-                                                                    if (next.has(item.gregorianDay)) next.delete(item.gregorianDay)
-                                                                    else next.add(item.gregorianDay)
-                                                                    setExpandedDays(next)
-                                                                }}
-                                                                className="text-xs text-textLight dark:text-textDark mt-1 hover:underline"
-                                                            >
-                                                                {isExpanded ? "Tutup" : `+${item.holidays.length - 1} lagi`}
-                                                            </button>
-                                                        )}
                                                     </div>
+                                                    {(isTruncated || hasMultiple) && (
+                                                        <div className="flex flex-col items-center gap-1 shrink-0 self-center">
+                                                            {hasMultiple && !isExpanded && (
+                                                                <span className="text-[10px] text-textLight dark:text-textDark whitespace-nowrap">
+                                                                    +{item.holidays.length - 1}
+                                                                </span>
+                                                            )}
+                                                            <ChevronDown
+                                                                size={16}
+                                                                className={`text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                                                            />
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )
                                         })}

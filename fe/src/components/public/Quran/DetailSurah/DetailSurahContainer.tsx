@@ -10,7 +10,7 @@ function DetailSurahContainer() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [currentReciter, setCurrentReciter] = useState("01");
+  const [currentReciter, setCurrentReciter] = useState("05");
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [currentAyatIndex, setCurrentAyatIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState({ currentTime: 0, duration: 0 });
