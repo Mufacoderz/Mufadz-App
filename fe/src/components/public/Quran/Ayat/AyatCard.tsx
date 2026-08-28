@@ -1,19 +1,34 @@
+import { Play, Pause } from "lucide-react";
 import type { Ayat } from "../../../../types/surah";
 import Number from "../Number";
 
 type AyatCardProps = {
   ayat: Ayat;
+  isActive?: boolean;
+  isPlaying?: boolean;
+  onPlay?: () => void;
+  registerRef?: (node: HTMLDivElement | null) => void;
 };
 
-function AyatCard({ ayat }: AyatCardProps) {
+function AyatCard({
+  ayat,
+  isActive = false,
+  isPlaying = false,
+  onPlay,
+  registerRef,
+}: AyatCardProps) {
   return (
-    <div className="
-      group relative overflow-hidden
-      rounded-2xl p-6 flex flex-col gap-5
-      shadow-sm hover:shadow-lg transition-all duration-300
-      bg-white text-gray-800
-      dark:bg-gradient-to-br dark:from-gray-800 dark:via-gray-900 dark:to-blue-950 dark:text-gray-100
-    ">
+    <div
+      ref={registerRef}
+      className={`
+        group relative overflow-hidden
+        rounded-2xl p-6 flex flex-col gap-5
+        shadow-sm hover:shadow-lg transition-all duration-300
+        bg-white text-gray-800
+        dark:bg-gradient-to-br dark:from-gray-800 dark:via-gray-900 dark:to-blue-950 dark:text-gray-100
+        ${isActive ? "ring-2 ring-textLight dark:ring-textDark" : ""}
+      `}
+    >
 
       <div className="
         absolute inset-0 
@@ -24,7 +39,21 @@ function AyatCard({ ayat }: AyatCardProps) {
       " />
 
       <div className="relative flex items-start justify-between gap-4">
-        <Number nomor={ayat.nomorAyat} />
+        <div className="flex items-center gap-2 shrink-0">
+          <Number nomor={ayat.nomorAyat} />
+          <button
+            onClick={onPlay}
+            aria-label={isPlaying ? "Jeda ayat ini" : "Putar ayat ini"}
+            className="
+              w-8 h-8 rounded-full flex items-center justify-center shrink-0
+              bg-blue-50 text-textLight hover:bg-blue-100
+              dark:bg-gray-700 dark:text-textDark dark:hover:bg-gray-600
+              transition-all duration-200
+            "
+          >
+            {isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+          </button>
+        </div>
         <p
           className="font-bold text-3xl text-right leading-relaxed w-full
           text-gray-900 dark:text-blue-100"

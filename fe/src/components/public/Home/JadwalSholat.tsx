@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Sun, Sunrise, Sunset, Moon, Sparkles } from "lucide-react"
+import { Sun, Sunrise, Sunset, Moon } from "lucide-react"
 import { getPrayerTimes } from "../../../api/aladhan"
 import { useLocation } from "../../../hooks/useLocation"
 import AOS from "aos"
@@ -19,31 +19,62 @@ type PrayerTimings = {
     Isha: string
 }
 
+const prayerCacheKey = (lat: number, lon: number) => {
+    const dateKey = new Date().toISOString().slice(0, 10)
+    return `mufadz_prayer_${dateKey}_${lat.toFixed(2)}_${lon.toFixed(2)}`
+}
+
 const JadwalSholat: React.FC = () => {
     const { coords, error } = useLocation()
     const [times, setTimes] = useState<PrayerTimings | null>(null)
 
     useEffect(() => {
-        if (coords) {
-            getPrayerTimes(coords.lat, coords.lon).then(setTimes)
+        if (!coords) return
+
+        const cacheKey = prayerCacheKey(coords.lat, coords.lon)
+        try {
+            const cached = localStorage.getItem(cacheKey)
+            if (cached) setTimes(JSON.parse(cached))
+        } catch {
+            // ignore
         }
+
+        getPrayerTimes(coords.lat, coords.lon).then((data) => {
+            setTimes(data)
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify(data))
+            } catch {
+                // ignore
+            }
+        })
     }, [coords])
 
     useEffect(() => {
-        AOS.init({
-            duration: 1000,
-            once: false,
-            offset: 100,
-        });
+        AOS.init({ duration: 1000, once: false, offset: 100 });
     }, []);
 
-    if (error)
+    if (error && !times)
         return <p className="text-red-500 dark:text-red-400 text-center">{error}</p>
+
     if (!times)
         return (
-            <p className="text-textLight dark:text-textDark text-center flex items-center justify-center gap-2">
-                <Sparkles className="animate-spin-slow" /> Memuat jadwal sholat...
-            </p>
+            <div
+                className="
+                    p-6 rounded-2xl shadow-sm border w-full max-w-full box-border
+                    bg-gradient-to-b from-blue-50 to-white border-blue-100
+                    dark:bg-gradient-to-b dark:from-gray-900 dark:to-gray-950 dark:border-gray-800
+                "
+            >
+                <div className="h-6 w-48 rounded-md bg-blue-100/70 dark:bg-gray-800 animate-pulse mb-4" />
+                <div className="grid grid-cols-1 gap-4">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <div
+                            key={i}
+                            className="h-16 rounded-xl bg-blue-50/80 dark:bg-gray-800/60 animate-pulse"
+                        />
+                    ))}
+                </div>
+            </div>
         )
 
     const prayers: Prayer[] = [
@@ -69,7 +100,7 @@ const JadwalSholat: React.FC = () => {
                 </h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4 w-full max-w-full">
+            <div className="grid grid-cols-1 gap-4 w-full max-w-full">
                 {prayers.map((p) => (
                     <div
                         key={p.name}
@@ -84,13 +115,7 @@ const JadwalSholat: React.FC = () => {
                         "
                     >
                         <div className="flex items-center gap-3">
-                            <div
-                                className="
-                                    p-2 rounded-lg 
-                                    bg-blue-50 text-textLight 
-                                    dark:bg-gray-700 dark:text-textDark
-                                "
-                            >
+                            <div className="p-2 rounded-lg bg-blue-50 text-textLight dark:bg-gray-700 dark:text-textDark">
                                 {p.icon}
                             </div>
                             <div>

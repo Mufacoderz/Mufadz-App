@@ -5,18 +5,15 @@ import { Sparkles } from "lucide-react"
 import AOS from "aos"
 import "aos/dist/aos.css";
 
-// Jumlah kartu yang ditampilkan per batch. API doa cuma support filter
-// grup/tag, gak ada param page/limit — jadi ini murni pagination di sisi
-// render (bukan fetch API baru tiap scroll).
 const PAGE_SIZE = 30;
 
 const DoaListCard = () => {
 
     useEffect(() => {
         AOS.init({
-            duration: 1000,
-            once: false,
-            offset: 100,
+            duration: 500,
+            once: true,
+            offset: 60,
         });
     }, []);
 
@@ -29,8 +26,6 @@ const DoaListCard = () => {
     const visibleCountRef = useRef(visibleCount)
     const loadingMoreRef = useRef(false)
 
-    // Reset batch pertama tiap kali sumber data berganti (misal nanti nambah
-    // filter grup/tag yang bikin doaList berubah total)
     useEffect(() => {
         setVisibleCount(PAGE_SIZE)
     }, [doaList])
@@ -39,8 +34,6 @@ const DoaListCard = () => {
         visibleCountRef.current = visibleCount
     }, [visibleCount])
 
-    // AOS cuma nge-scan DOM sekali pas init, jadi kartu yang baru di-append
-    // harus di-refresh supaya animasinya kedeteksi juga
     useEffect(() => {
         AOS.refresh()
     }, [visibleCount])
@@ -59,8 +52,6 @@ const DoaListCard = () => {
                     loadingMoreRef.current = true
                     setLoadingMore(true)
 
-                    // Delay kecil biar loading state sempat kerender & terasa,
-                    // sebelum batch berikutnya di-append ke grid
                     setTimeout(() => {
                         setVisibleCount((c) => Math.min(c + PAGE_SIZE, doaList.length))
                         setLoadingMore(false)
@@ -77,25 +68,29 @@ const DoaListCard = () => {
 
     if (loading)
         return (
-            <div className="flex justify-center items-center h-64">
-                <p className="text-textbg-textLight dark:text-txtbg-textDark text-lg animate-pulse flex items-center gap-2">
-                    <Sparkles className="animate-spin-slow" /> Memuat do'a...
-                </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-5">
+                {Array.from({ length: 12 }).map((_, i) => (
+                    <div
+                        key={i}
+                        className="h-16 rounded-2xl bg-blue-50/60 dark:bg-gray-800/40 animate-pulse"
+                    />
+                ))}
             </div>
         )
 
     if (error)
         return (
-            <p className="text-center mt-10 text-red-500 font-medium">
-                Terjadi kesalahan: {error}
-            </p>
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+            </div>
         )
 
     if (!doaList || doaList.length === 0)
         return (
-            <p className="text-center mt-10 text-gray-500 italic">
-                Tidak ada do'a tersedia.
-            </p>
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <p className="text-4xl opacity-30">📖</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500">Tidak ada do'a tersedia.</p>
+            </div>
         )
 
     const visibleDoa = doaList.slice(0, visibleCount)
@@ -103,27 +98,40 @@ const DoaListCard = () => {
 
     return (
         <>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 ">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-5">
                 {visibleDoa.map((doa) => (
                     <Link key={doa.id} to={`/doa/${doa.id}`}>
                         <div
-                            key={doa.id}
-                            data-aos="fade-right"
-                            data-aos-delay={Math.random() * 200}
-                            className="group bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-blue-100 dark:border-gray-700 hover:border-blue-700 dark:hover:border-blue-100
-                        rounded-2xl p-5 shadow-sm hover:shadow-md transition-all duration-300 cursor-pointer
-                        hover:-translate-y-1 flex flex-col items-start h-18 sm:h-24"
+                            data-aos="fade-up"
+                            className="
+                                group relative overflow-hidden
+                                rounded-2xl border shadow-sm hover:shadow-lg
+                                transition-all duration-300 cursor-pointer hover:-translate-y-0.5
+                                bg-white dark:bg-gray-800/80
+                                border-blue-50 dark:border-gray-700/60
+                                hover:border-blue-200 dark:hover:border-blue-900/60
+                            "
                         >
-                            <div
+                            <div className="
+                                absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500
+                                bg-gradient-to-br from-blue-50/50 via-transparent to-blue-100/30
+                                dark:from-blue-950/20 dark:via-transparent dark:to-blue-900/10
+                            " />
 
-                                className="flex items-center justify-between w-full ">
-                                <div className="flex items-start gap-3">
-                                    <div className="bg-textLight dark:bg-textDark text-white dark:text-gray-800 w-10 h-10 flex items-center justify-center rounded-full font-semibold shadow-sm">
-                                        {doa.id}
-                                    </div>
-                                    <h3 className="text-base font-semibold text-gray-800 dark:text-white group-hover:text-blue-700 dark:group-hover:text-txtbg-textDark transition-colors flex-1">
+                            <div className="relative flex items-center gap-4 p-4">
+                                <div className="
+                                    w-11 h-11 rounded-xl flex items-center justify-center shrink-0
+                                    bg-gradient-to-br from-blue-500 to-blue-600
+                                    dark:from-blue-600 dark:to-blue-700
+                                    text-white font-bold text-sm shadow-sm
+                                ">
+                                    {doa.id}
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">
                                         {doa.judul}
-                                    </h3>
+                                    </p>
                                 </div>
                             </div>
                         </div>

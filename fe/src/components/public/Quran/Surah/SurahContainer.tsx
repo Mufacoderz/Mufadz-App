@@ -47,11 +47,24 @@ function SurahContainer() {
   }, [surahs]);
 
   if (isLoading) {
-    return <p>Loading...</p>;
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-5">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-16 rounded-2xl bg-blue-50/60 dark:bg-gray-800/40 animate-pulse"
+          />
+        ))}
+      </div>
+    );
   }
 
   if (error) {
-    return <p>{error}</p>;
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+      </div>
+    );
   }
 
   return (

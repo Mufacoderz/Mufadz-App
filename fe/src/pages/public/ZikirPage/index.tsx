@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Repeat, X, RotateCcw } from "lucide-react";
 import DoaCard from "../../../components/public/Doa/DoaCard";
+import HeadingPage from "../../../components/public/Heading";
 
 interface Bacaan {
     judul: string;
@@ -106,7 +107,7 @@ export default function ZikirPage() {
     return (
         <div className="w-full dark:bg-gray-900 min-h-screen p-4 md:p-8">
             <div className="max-w-2xl mx-auto space-y-6">
-                
+                <HeadingPage title="Zikir & Dzikir" subtitle="Bacaan zikir harian dengan fitur tasbih digital" />
 
                 <div className="space-y-6 pb-8">
                     {bacaanList.map((bacaan, i) => (

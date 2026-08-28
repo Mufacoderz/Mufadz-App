@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Wheat, Briefcase, PiggyBank } from "lucide-react";
+import HeadingPage from "../../../components/public/Heading";
 
 type ZakatType = "fitrah" | "penghasilan" | "maal";
 
@@ -45,9 +46,7 @@ export default function ZakatPage() {
     return (
         <div className="w-full dark:bg-gray-900 min-h-screen p-4 md:p-8">
             <div className="max-w-2xl mx-auto space-y-6">
-                <h1 className="text-3xl font-bold text-textLight dark:text-textDark text-center">
-                    Kalkulator Zakat
-                </h1>
+                <HeadingPage title="Kalkulator Zakat" subtitle="Hitung zakat fitrah, penghasilan, dan maal" />
 
                 <div className="grid grid-cols-3 gap-3">
                     {jenisList.map((j) => (

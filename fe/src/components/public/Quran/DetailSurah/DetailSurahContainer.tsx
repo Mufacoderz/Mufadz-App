@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import type { Surah } from "../../../../types/surah";
 import DetailSurah from "./DetailSurah";
@@ -11,6 +11,8 @@ function DetailSurahContainer() {
 
   const [currentReciter, setCurrentReciter] = useState("01");
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const [currentAyatIndex, setCurrentAyatIndex] = useState<number | null>(null);
+  const [progress, setProgress] = useState({ currentTime: 0, duration: 0 });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -37,7 +39,17 @@ function DetailSurahContainer() {
   }, [surahId]);
 
   useEffect(() => {
-    // Cleanup audio when component unmounts
+    // Reset player tiap pindah surah
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
+    setCurrentAyatIndex(null);
+    setAudioPlaying(false);
+    setProgress({ currentTime: 0, duration: 0 });
+  }, [surahId]);
+
+  useEffect(() => {
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -46,41 +58,92 @@ function DetailSurahContainer() {
     };
   }, []);
 
-  const changeReciter = (reciterId: string) => {
-    setCurrentReciter(reciterId);
-    // If audio is playing, restart with new reciter
-    if (audioPlaying) {
-      handlePauseAudio();
-
-      // Timeout to ensure audio is properly stopped before starting new one
-      setTimeout(() => {
-        handlePlayFullSurah();
-      }, 100);
-    }
-  };
-
-  const handlePlayFullSurah = () => {
-    if (!surah) return;
-
+  const cleanupAudio = () => {
     if (audioRef.current) {
       audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.ontimeupdate = null;
+      audioRef.current.onloadedmetadata = null;
+      audioRef.current.src = "";
     }
-
-    audioRef.current = new Audio(surah.audioFull[currentReciter]);
-    audioRef.current.onended = () => {
-      setAudioPlaying(false);
-    };
-
-    audioRef.current.play();
-    setAudioPlaying(true);
   };
+
+  const playAyat = useCallback(
+    (index: number, reciterId: string = currentReciter) => {
+      if (!surah) return;
+      const target = surah.ayat[index];
+      if (!target) return;
+
+      cleanupAudio();
+
+      const audio = new Audio(target.audio[reciterId]);
+      audioRef.current = audio;
+
+      audio.ontimeupdate = () => {
+        setProgress({ currentTime: audio.currentTime, duration: audio.duration || 0 });
+      };
+      audio.onloadedmetadata = () => {
+        setProgress((prev) => ({ ...prev, duration: audio.duration || 0 }));
+      };
+      audio.onended = () => {
+        const nextIndex = index + 1;
+        if (surah.ayat[nextIndex]) {
+          playAyat(nextIndex);
+        } else {
+          setAudioPlaying(false);
+        }
+      };
+
+      audio.play();
+      setCurrentAyatIndex(index);
+      setAudioPlaying(true);
+      setProgress({ currentTime: 0, duration: 0 });
+    },
+    [surah, currentReciter]
+  );
 
   const handlePauseAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-
+    audioRef.current?.pause();
     setAudioPlaying(false);
+  };
+
+  const handleTogglePlay = () => {
+    if (audioPlaying) {
+      handlePauseAudio();
+    } else if (currentAyatIndex !== null && audioRef.current) {
+      audioRef.current.play();
+      setAudioPlaying(true);
+    } else if (currentAyatIndex !== null) {
+      playAyat(currentAyatIndex);
+    } else {
+      playAyat(0);
+    }
+  };
+
+  const handlePlayNext = () => {
+    if (currentAyatIndex === null || !surah) return;
+    const next = currentAyatIndex + 1;
+    if (surah.ayat[next]) playAyat(next);
+  };
+
+  const handlePlayPrev = () => {
+    if (currentAyatIndex === null || !surah) return;
+    const prev = currentAyatIndex - 1;
+    if (surah.ayat[prev]) playAyat(prev);
+  };
+
+  const handleSeek = (time: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setProgress((prev) => ({ ...prev, currentTime: time }));
+    }
+  };
+
+  const changeReciter = (reciterId: string) => {
+    setCurrentReciter(reciterId);
+    if (currentAyatIndex !== null) {
+      playAyat(currentAyatIndex, reciterId);
+    }
   };
 
   if (loading) {
@@ -100,9 +163,16 @@ function DetailSurahContainer() {
       surah={surah}
       currentReciter={currentReciter}
       changeReciter={changeReciter}
-      onPlay={handlePlayFullSurah}
+      onPlay={handleTogglePlay}
       onPause={handlePauseAudio}
       audioPlaying={audioPlaying}
+      currentAyatIndex={currentAyatIndex}
+      progress={progress}
+      onPlayAyat={playAyat}
+      onPlayNext={handlePlayNext}
+      onPlayPrev={handlePlayPrev}
+      onTogglePlay={handleTogglePlay}
+      onSeek={handleSeek}
     />
   );
 }

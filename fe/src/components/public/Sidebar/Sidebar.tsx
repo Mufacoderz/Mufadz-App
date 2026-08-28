@@ -74,9 +74,11 @@ const Sidebar = () => {
         });
     }, []);
 
+    const isSurahDetail = activePath.startsWith("/surah/");
+
     return (
         <>
-            <SidebarToggle open={open} setOpen={setOpen} />
+            {!isSurahDetail && <SidebarToggle open={open} setOpen={setOpen} />}
 
             <aside
                 className={`fixed top-0 left-0 h-full bg-white dark:bg-bgDark shadow-lg border-r dark:border-gray-600 z-40 transform transition-transform duration-300 ease-in-out
@@ -138,7 +140,7 @@ const Sidebar = () => {
                     )}
 
                     <a
-                        href="https://github.com/Mufacoderz"
+                        href="https://flaid.my.id"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-3 w-full px-4 py-2 rounded-lg text-gray-500 hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-textLight dark:hover:text-blue-300 transition-all duration-200"

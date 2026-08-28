@@ -10,7 +10,7 @@ const PanduanSupport = () => {
                 </p>
             </div>
             
-            <a href="https://github.com/Mufacoderz"
+            <a href="https://github.com/itsflaid"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all whitespace-nowrap"

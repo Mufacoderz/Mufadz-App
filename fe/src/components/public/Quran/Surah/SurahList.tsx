@@ -9,22 +9,29 @@ type SurahListProps = {
 };
 
 function SurahList({ surahs }: SurahListProps) {
-    // AOS.init cukup sekali di parent, bukan di tiap SurahCard
     useEffect(() => {
         AOS.init({
-            duration: 600,
-            once: true, // animasi hanya sekali, tidak re-trigger saat scroll balik
-            offset: 80,
+            duration: 500,
+            once: true,
+            offset: 60,
         });
     }, []);
 
-    // refresh AOS saat list berubah (misal setelah filter search)
     useEffect(() => {
         AOS.refresh();
     }, [surahs]);
 
+    if (surahs.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <p className="text-4xl opacity-30">🔍</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500">Surah tidak ditemukan.</p>
+            </div>
+        );
+    }
+
     return (
-        <div className="flex flex-col gap-3 p-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-5">
             {surahs.map((surah) => (
                 <SurahCard key={surah.nomor} surah={surah} />
             ))}
