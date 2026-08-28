@@ -89,3 +89,12 @@ Membangun aplikasi Islami modern dengan fitur-fitur yang relevan untuk kehidupan
 
 ---
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Portfolio-flaid.my.id-black?style=flat-square" alt="Portfolio" />
+  <a href="https://github.com/itsflaid"><img src="https://img.shields.io/badge/GitHub-itsflaid-black?style=flat-square&logo=github" alt="GitHub" /></a>
+</p>
+
+<p align="center">
+  Built with ☕ by <a href="https://flaid.my.id"><strong>Flaid</strong></a> — Full-stack Developer & Indie Builder
+</p> 
+
