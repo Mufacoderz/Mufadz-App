@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import type { Surah } from "../../../../types/surah";
+import { getReciterName } from "../../../../constants/reciters";
 import DetailSurah from "./DetailSurah";
 
 function DetailSurahContainer() {
@@ -15,8 +16,6 @@ function DetailSurahContainer() {
   const [progress, setProgress] = useState({ currentTime: 0, duration: 0 });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Selalu pegang reciter terbaru supaya recursive call di audio.onended
-  // (lanjut ke ayat berikutnya) tidak kejebak stale closure reciter lama.
   const currentReciterRef = useRef(currentReciter);
   useEffect(() => {
     currentReciterRef.current = currentReciter;
@@ -44,8 +43,9 @@ function DetailSurahContainer() {
     fetchSurah();
   }, [surahId]);
 
+  // Reset player & MediaSession metadata tiap pindah supaya info surah
+  // sebelumnya tidak nyangkut di notification shade / lock screen.
   useEffect(() => {
-    // Reset player tiap pindah surah
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
@@ -53,6 +53,9 @@ function DetailSurahContainer() {
     setCurrentAyatIndex(null);
     setAudioPlaying(false);
     setProgress({ currentTime: 0, duration: 0 });
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = null;
+    }
   }, [surahId]);
 
   useEffect(() => {
@@ -80,9 +83,6 @@ function DetailSurahContainer() {
       const target = surah.ayat[index];
       if (!target) return;
 
-      // Kalau reciterId gak dikasih (misal dari onended pas lanjut ayat),
-      // selalu ambil nilai reciter TERBARU dari ref, bukan dari default
-      // parameter yang bisa kejebak closure lama.
       const activeReciter = reciterId ?? currentReciterRef.current;
       currentReciterRef.current = activeReciter;
 
@@ -90,6 +90,20 @@ function DetailSurahContainer() {
 
       const audio = new Audio(target.audio[activeReciter]);
       audioRef.current = audio;
+
+      // Set MediaSession metadata — muncul di notification shade & lock screen.
+      // Artwork pakai icon PWA yang sama biar konsisten di semua platform.
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: `Ayat ${target.nomorAyat} — ${surah.namaLatin}`,
+          artist: getReciterName(activeReciter),
+          album: "Mufadz Portal · Al-Qur'an",
+          artwork: [
+            { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+            { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+          ],
+        });
+      }
 
       audio.ontimeupdate = () => {
         setProgress({ currentTime: audio.currentTime, duration: audio.duration || 0 });
@@ -158,6 +172,41 @@ function DetailSurahContainer() {
       playAyat(currentAyatIndex, reciterId);
     }
   };
+
+  // Daftarkan action handlers MediaSession tanpa dependency array supaya
+  // selalu baca state terbaru tiap render (handlePlayPrev/Next/Seekfresh).
+  // Cleanup null-kan semua handler saat unmount.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    navigator.mediaSession.setActionHandler("play", () => {
+      audioRef.current?.play();
+      setAudioPlaying(true);
+    });
+    navigator.mediaSession.setActionHandler("pause", () => {
+      audioRef.current?.pause();
+      setAudioPlaying(false);
+    });
+    navigator.mediaSession.setActionHandler("previoustrack", handlePlayPrev);
+    navigator.mediaSession.setActionHandler("nexttrack", handlePlayNext);
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (details.seekTime !== undefined) handleSeek(details.seekTime);
+    });
+
+    return () => {
+      navigator.mediaSession.setActionHandler("play", null);
+      navigator.mediaSession.setActionHandler("pause", null);
+      navigator.mediaSession.setActionHandler("previoustrack", null);
+      navigator.mediaSession.setActionHandler("nexttrack", null);
+      navigator.mediaSession.setActionHandler("seekto", null);
+    };
+  });
+
+  // Sync playbackState supaya ikon play/pause di lock screen selalu benar.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = audioPlaying ? "playing" : "paused";
+  }, [audioPlaying]);
 
   if (loading) {
     return <div className="p-5 text-center">Memuat...</div>;

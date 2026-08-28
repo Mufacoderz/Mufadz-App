@@ -1,5 +1,6 @@
 import PlayIcon from "../../../assets/PlayIcon.svg";
 import PauseIcon from "../../../assets/PauseIcon.svg";
+import { RECITERS } from "../../../constants/reciters";
 
 type AudioControlProps = {
   currentReciter: string;
@@ -16,14 +17,6 @@ function AudioControl({
   onPlay,
   onPause,
 }: AudioControlProps) {
-  const reciters = [
-    { id: "01", name: "Abdullah Al-Juhany" },
-    { id: "02", name: "Abdul Muhsin Al-Qasim" },
-    { id: "03", name: "Abdurrahman as-Sudais" },
-    { id: "04", name: "Ibrahim Al-Dossari" },
-    { id: "05", name: "Misyari Rasyid Al-Afasi" },
-  ];
-
   return (
     <div className="flex items-center justify-between gap-4 w-full">
       {/* Dropdown Reciter */}
@@ -40,7 +33,7 @@ function AudioControl({
           dark:focus:ring-blue-500
         "
       >
-        {reciters.map((reciter) => (
+        {RECITERS.map((reciter) => (
           <option
             key={reciter.id}
             value={reciter.id}
