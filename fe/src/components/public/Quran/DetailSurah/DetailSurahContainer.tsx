@@ -15,6 +15,12 @@ function DetailSurahContainer() {
   const [progress, setProgress] = useState({ currentTime: 0, duration: 0 });
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Selalu pegang reciter terbaru supaya recursive call di audio.onended
+  // (lanjut ke ayat berikutnya) tidak kejebak stale closure reciter lama.
+  const currentReciterRef = useRef(currentReciter);
+  useEffect(() => {
+    currentReciterRef.current = currentReciter;
+  }, [currentReciter]);
 
   useEffect(() => {
     const fetchSurah = async () => {
@@ -69,14 +75,20 @@ function DetailSurahContainer() {
   };
 
   const playAyat = useCallback(
-    (index: number, reciterId: string = currentReciter) => {
+    (index: number, reciterId?: string) => {
       if (!surah) return;
       const target = surah.ayat[index];
       if (!target) return;
 
+      // Kalau reciterId gak dikasih (misal dari onended pas lanjut ayat),
+      // selalu ambil nilai reciter TERBARU dari ref, bukan dari default
+      // parameter yang bisa kejebak closure lama.
+      const activeReciter = reciterId ?? currentReciterRef.current;
+      currentReciterRef.current = activeReciter;
+
       cleanupAudio();
 
-      const audio = new Audio(target.audio[reciterId]);
+      const audio = new Audio(target.audio[activeReciter]);
       audioRef.current = audio;
 
       audio.ontimeupdate = () => {
@@ -99,7 +111,7 @@ function DetailSurahContainer() {
       setAudioPlaying(true);
       setProgress({ currentTime: 0, duration: 0 });
     },
-    [surah, currentReciter]
+    [surah]
   );
 
   const handlePauseAudio = () => {
@@ -140,6 +152,7 @@ function DetailSurahContainer() {
   };
 
   const changeReciter = (reciterId: string) => {
+    currentReciterRef.current = reciterId;
     setCurrentReciter(reciterId);
     if (currentAyatIndex !== null) {
       playAyat(currentAyatIndex, reciterId);

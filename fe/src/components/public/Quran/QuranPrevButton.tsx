@@ -10,10 +10,10 @@ const QuranPrevButton = () => {
             <button
                 onClick={() => navigate("/quran")}
                 className="
-                    md:hidden fixed bottom-24 right-4 z-40
+                    md:hidden fixed top-4 left-4 z-40
                     w-12 h-12 rounded-full flex items-center justify-center
                     bg-textLight dark:bg-textDark text-white dark:text-gray-800
-                    shadow-lg hover:shadow-xl transition-all duration-300
+                    shadow-lg hover:shadow-xl transition-all duration-300 opacity-80 hover:opacity-100
                 "
                 aria-label="Kembali ke Daftar Surah"
             >

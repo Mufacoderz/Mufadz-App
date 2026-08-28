@@ -5,7 +5,7 @@ function DetailSurahPage() {
     return (
         <>
             <div className="dark:bg-gray-900">
-                <div className="py-10 sm:w-[80%] mx-auto">
+                <div className="py-4 sm:py-10 sm:w-[80%] mx-auto">
                     <div className="ml-6">
                         <QuranPrevButton />
                     </div>

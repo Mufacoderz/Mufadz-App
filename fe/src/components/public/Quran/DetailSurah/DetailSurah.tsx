@@ -39,7 +39,7 @@ function DetailSurah({
     currentAyatIndex !== null ? surah.ayat[currentAyatIndex]?.nomorAyat ?? null : null;
 
   return (
-    <div className="py-8 px-5 flex flex-col gap-5 pb-28">
+    <div className="pt-2 sm:pt-8 pb-28 px-5 flex flex-col gap-5">
       <DetailSurahInfo surah={surah} />
 
       <AudioControl
