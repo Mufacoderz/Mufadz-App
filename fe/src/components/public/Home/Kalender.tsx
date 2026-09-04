@@ -34,6 +34,12 @@ function gregorianToHijri(date: Date) {
     return { day: d, month: m - 1, year: y }
 }
 
+function truncateWords(text: string, maxWords = 3) {
+    const words = text.trim().split(/\s+/)
+    if (words.length <= maxWords) return text
+    return `${words.slice(0, maxWords).join(" ")}...`
+}
+
 type TabKey = "kalender" | "penting"
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -51,6 +57,8 @@ const KalenderModern = () => {
     const [expandedDay, setExpandedDay] = useState<number | null>(null)
     const [truncatedDays, setTruncatedDays] = useState<Set<number>>(new Set())
     const textContainerRef = useRef<HTMLDivElement>(null)
+    const gridRef = useRef<HTMLDivElement>(null)
+    const [gridHeight, setGridHeight] = useState<number | null>(null)
 
     const today = new Date()
     const targetDate = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1)
@@ -143,6 +151,17 @@ const KalenderModern = () => {
         setTruncatedDays(next)
     }, [hariPentingList, hariPentingOffset, expandedDay])
 
+    useEffect(() => {
+        const node = gridRef.current
+        if (!node) return
+        const observer = new ResizeObserver((entries) => {
+            const height = entries[0]?.contentRect.height
+            if (height) setGridHeight(height)
+        })
+        observer.observe(node)
+        return () => observer.disconnect()
+    }, [activeTab, monthOffset])
+
     return (
         <div
             className="
@@ -222,6 +241,7 @@ const KalenderModern = () => {
                 <AnimatePresence mode="wait">
                     {activeTab === "kalender" ? (
                         <motion.div
+                            ref={gridRef}
                             key={`grid-${monthOffset}`}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -273,6 +293,10 @@ const KalenderModern = () => {
                                     </div>
                                 )
                             })}
+
+                            {Array.from({ length: 42 - firstDay - daysInMonth }).map((_, i) => (
+                                <div key={`empty-trailing-${i}`} />
+                            ))}
                         </motion.div>
                     ) : (
                         <motion.div
@@ -281,7 +305,8 @@ const KalenderModern = () => {
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.25 }}
-                            className="flex flex-col gap-2 overflow-hidden w-full min-h-[420px]"
+                            className="flex flex-col gap-2 overflow-y-auto w-full"
+                            style={{ height: gridHeight ?? 380 }}
                         >
                             {hariPentingList.length === 0 ? (
                                 <div className="flex-1 flex flex-col items-center justify-center gap-3 py-8">
@@ -297,6 +322,9 @@ const KalenderModern = () => {
                                             const isExpanded = expandedDay === item.gregorianDay
                                             const hasMultiple = item.holidays.length > 1
                                             const isTruncated = truncatedDays.has(item.gregorianDay)
+                                            const originalTitle = translateHoliday(item.holidays[0])
+                                            const displayTitle = truncateWords(originalTitle)
+                                            const isWordTruncated = displayTitle !== originalTitle
                                             const toggleExpanded = () => {
                                                 setExpandedDay(isExpanded ? null : item.gregorianDay)
                                             }
@@ -319,18 +347,18 @@ const KalenderModern = () => {
                                                         transition-colors
                                                     "
                                                 >
-                                                    <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg bg-blue-50 dark:bg-gray-700 shrink-0">
-                                                        <span className="text-base font-bold text-textLight dark:text-textDark leading-none">
+                                                    <div className="flex flex-col items-center justify-center w-9 h-9 sm:w-12 sm:h-12 rounded-lg bg-blue-50 dark:bg-gray-700 shrink-0">
+                                                        <span className="text-sm sm:text-base font-bold text-textLight dark:text-textDark leading-none">
                                                             {item.gregorianDay}
                                                         </span>
-                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500 leading-none mt-0.5">
+                                                        <span className="text-[9px] sm:text-[10px] text-gray-400 dark:text-gray-500 leading-none mt-0.5">
                                                             {monthShort}
                                                         </span>
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         {!isExpanded ? (
                                                             <p data-truncate={item.gregorianDay} className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                                                                {translateHoliday(item.holidays[0])}
+                                                                {displayTitle}
                                                             </p>
                                                         ) : (
                                                             <AnimatePresence initial={false}>
@@ -343,8 +371,8 @@ const KalenderModern = () => {
                                                                 >
                                                                     {item.holidays.map((h, i) => (
                                                                         <li key={i} className="flex items-start gap-1.5">
-                                                                            <span className="text-textLight dark:text-textDark mt-0.5">•</span>
-                                                                            <span>{translateHoliday(h)}</span>
+                                                                            <span className="text-textLight dark:text-textDark mt-0.5 shrink-0">•</span>
+                                                                            <span className="break-words min-w-0">{translateHoliday(h)}</span>
                                                                         </li>
                                                                     ))}
                                                                 </motion.ul>
@@ -354,7 +382,7 @@ const KalenderModern = () => {
                                                             {item.hijriDay} {item.hijriMonthName} {item.hijriYear} H
                                                         </p>
                                                     </div>
-                                                    {(isTruncated || hasMultiple) && (
+                                                    {(isTruncated || hasMultiple || isWordTruncated) && (
                                                         <div className="flex flex-col items-center gap-1 shrink-0 self-center">
                                                             {hasMultiple && !isExpanded && (
                                                                 <span className="text-[10px] text-textLight dark:text-textDark whitespace-nowrap">
